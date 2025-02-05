@@ -65,6 +65,7 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, dataTexture);
             glGenerateMipmap(GL_TEXTURE_2D);
             stbi_image_free(dataTexture);
+            std::cout << "Success to load texture: " << textureFile << std::endl;
         }
         else {
             std::cerr << "Failed to load texture: " << textureFile << std::endl;
@@ -83,6 +84,7 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
     aiReleaseImport(scene);
     return data;
 }
+
 
 
 // 顶点着色器源码
@@ -173,35 +175,6 @@ void initShaders() {
     glDeleteShader(fragmentShader);
 }
 
-
-// 加载立方体贴图
-GLuint loadCubeMap(std::vector<std::string> faces) {
-    GLuint textureID;
-    glGenTextures(1, &textureID);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
-
-    for (unsigned int i = 0; i < faces.size(); i++) {
-        int width, height, nrChannels;
-        unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
-        if (data) {
-            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-            stbi_image_free(data);
-        }
-        else {
-            std::cerr << "Failed to load cubemap texture at " << faces[i] << std::endl;
-            stbi_image_free(data);
-        }
-    }
-
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-
-    return textureID;
-}
-
 // 设置视图矩阵和投影矩阵
 glm::mat4 getViewMatrix() {
     // 根据球面坐标计算相机位置
@@ -282,17 +255,15 @@ void display() {
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
     glUniform3f(viewPosLoc, 0.0f, 0.0f, cameraDistance);
 
-    glActiveTexture(GL_TEXTURE0);  // 激活纹理单元 0
-    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
-
     for (int i = 0; i < 9; i++) {
         glm::mat4 model = glm::translate(glm::mat4(1.0f), modelData[i].position); // 使用模型位置
         model = glm::rotate(model, modelRotationY, glm::vec3(0.0f, 1.0f, 0.0f)); // Y 轴旋转
 
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
-        // 绑定纹理（如果存在）
+        // 绑定该模型的纹理（如果存在）
         if (modelData[i].textureID) {
+            glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, modelData[i].textureID);
         }
 
@@ -305,23 +276,21 @@ void display() {
 }
 
 
+
 // 初始化 OpenGL
 void initOpenGL() {
     glewInit();
     glEnable(GL_DEPTH_TEST);
     initShaders();
 
-    std::vector<std::string> faces = {
-        "diffuse.jpg", "diffuse.jpg", "diffuse.jpg", "diffuse.jpg", "diffuse.jpg", "diffuse.jpg"
-    };
-    cubeMapTexture = loadCubeMap(faces);
-
+    // 加载模型及其纹理
     modelData[0] = loadModel("monkey.dae", "diffuse.jpg", { 0.0f, 0.0f, 0.0f });
-    modelData[1] = loadModel("red_cube.dae", "diffuse.jpg", { 5.0f, 0.0f, 0.0f });
+    modelData[1] = loadModel("cube.dae", "asset/facade0.jpg", { 2.0f, 0.0f, 0.0f });
     // 加载其他模型...
 
     initBuffers();
 }
+
 
 
 int main(int argc, char** argv) {
