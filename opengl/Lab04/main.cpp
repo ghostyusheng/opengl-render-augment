@@ -92,6 +92,7 @@ const char* vertexShaderSource = R"(
 #version 330 core
 layout(location = 0) in vec3 vertex_position;
 layout(location = 1) in vec3 vertex_normal;
+layout(location = 2) in vec2 vertex_texcoord; // 添加纹理坐标输入
 
 uniform mat4 model;
 uniform mat4 view;
@@ -99,12 +100,15 @@ uniform mat4 projection;
 
 out vec3 fragPosition;
 out vec3 fragNormal;
+out vec2 fragTexcoord; // 传递纹理坐标
 
 void main() {
     fragPosition = vec3(model * vec4(vertex_position, 1.0));
     fragNormal = mat3(transpose(inverse(model))) * vertex_normal;
+    fragTexcoord = vertex_texcoord; // 传递纹理坐标
     gl_Position = projection * view * vec4(fragPosition, 1.0);
 }
+
 )";
 
 // 片段着色器源码
@@ -113,7 +117,7 @@ const char* fragmentShaderSource = R"(
 in vec3 fragPosition;
 in vec3 fragNormal;
 
-uniform samplerCube environmentMap;
+uniform sampler2D textureSampler; // 2D 纹理采样器
 uniform vec3 viewPosition;
 
 out vec4 fragColor;
@@ -122,11 +126,16 @@ void main() {
     vec3 normal = normalize(fragNormal);
     vec3 viewDir = normalize(viewPosition - fragPosition);
 
-    vec3 reflectDir = reflect(-viewDir, normal);
-    vec3 reflectedColor = texture(environmentMap, reflectDir).rgb;
+    // 简单的漫反射光照
+    vec3 lightDir = normalize(vec3(0.0, 1.0, 1.0)); // 光源方向
+    float diff = max(dot(normal, lightDir), 0.0);
 
-    fragColor = vec4(reflectedColor, 1.0);
+    vec3 textureColor = texture(textureSampler, fragPosition.xy).rgb; // 使用 2D 纹理
+    vec3 finalColor = diff * textureColor;
+
+    fragColor = vec4(finalColor, 1.0);
 }
+
 )";
 
 // 编译单个着色器
