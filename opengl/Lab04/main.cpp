@@ -23,7 +23,7 @@ struct ModelData {
 };
 
 
-GLuint vao[9], vboVertices[9], vboNormals[9], shaderProgram, cubeMapTexture;
+GLuint vao[9], vboVertices[9], vboNormals[9], vboTexCoords[9], shaderProgram, cubeMapTexture;
 ModelData modelData[9];
 
 // 控制变量
@@ -33,6 +33,7 @@ float cameraAngleY = 0.0f;     // 视角绕 Y 轴旋转角度
 float modelRotationY = 0.0f;   // 模型绕 Y 轴旋转角度
 
 
+// 加载模型函数
 // 加载模型函数
 ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm::vec3 position = { 0.0f, 0.0f, 0.0f }) {
     ModelData data;
@@ -44,6 +45,8 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
 
     const aiMesh* mesh = scene->mMeshes[0];
     data.pointCount = mesh->mNumVertices;
+
+    std::cout << "Model: " << fileName << " - Number of vertices: " << data.pointCount << std::endl;
 
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
         const aiVector3D* pos = &mesh->mVertices[i];
@@ -59,20 +62,28 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
         if (texCoord) {
             data.texCoords.push_back(texCoord->x);
             data.texCoords.push_back(texCoord->y);
+
+            // 打印纹理坐标
+            std::cout << "Vertex " << i << " Texture Coord: (" << texCoord->x << ", " << texCoord->y << ")" << std::endl;
         }
         else {
             data.texCoords.push_back(0.0f); // 默认纹理坐标
             data.texCoords.push_back(0.0f);
+
+            // 打印默认纹理坐标
+            std::cout << "Vertex " << i << " Texture Coord: (0.0, 0.0)" << std::endl;
         }
     }
 
     // 检查模型是否有自带纹理
     bool hasModelTexture = false;
+    int textureWidth = 0, textureHeight = 0;
     if (scene->mNumMaterials > 0) {
         aiMaterial* material = scene->mMaterials[0];
         aiString texturePath;
         if (material->GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS) {
             hasModelTexture = true;
+            std::cout << "Found model texture for: " << fileName << std::endl;
 
             // 加载模型自带纹理
             std::string directory = fileName;
@@ -82,13 +93,14 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
             glGenTextures(1, &data.textureID);
             glBindTexture(GL_TEXTURE_2D, data.textureID);
 
-            int width, height, nrChannels;
-            unsigned char* dataTexture = stbi_load(fullTexturePath.c_str(), &width, &height, &nrChannels, 0);
+            int nrChannels;
+            unsigned char* dataTexture = stbi_load(fullTexturePath.c_str(), &textureWidth, &textureHeight, &nrChannels, 0);
             if (dataTexture) {
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, dataTexture);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, textureWidth, textureHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, dataTexture);
                 glGenerateMipmap(GL_TEXTURE_2D);
                 stbi_image_free(dataTexture);
-                std::cout << "Success to load model texture: " << fullTexturePath << std::endl;
+                std::cout << "Success to load model texture: " << fullTexturePath
+                    << " (Width: " << textureWidth << ", Height: " << textureHeight << ")" << std::endl;
             }
             else {
                 std::cerr << "Failed to load model texture: " << fullTexturePath << std::endl;
@@ -107,16 +119,17 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
         glGenTextures(1, &data.textureID);
         glBindTexture(GL_TEXTURE_2D, data.textureID);
 
-        int width, height, nrChannels;
-        unsigned char* dataTexture = stbi_load(textureFile, &width, &height, &nrChannels, 0);
+        int nrChannels;
+        unsigned char* dataTexture = stbi_load(textureFile, &textureWidth, &textureHeight, &nrChannels, 0);
         if (dataTexture) {
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, dataTexture);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, textureWidth, textureHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, dataTexture);
             glGenerateMipmap(GL_TEXTURE_2D);
             stbi_image_free(dataTexture);
-            std::cout << "Success to load texture: " << textureFile << std::endl;
+            std::cout << "Success to load texture file: " << textureFile
+                << " (Width: " << textureWidth << ", Height: " << textureHeight << ")" << std::endl;
         }
         else {
-            std::cerr << "Failed to load texture: " << textureFile << std::endl;
+            std::cerr << "Failed to load texture file: " << textureFile << std::endl;
             stbi_image_free(dataTexture);
         }
 
@@ -133,6 +146,18 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
 
     // 设置模型空间位置
     data.position = position;
+
+    // 打印调试信息
+    std::cout << "Model loaded: " << fileName << std::endl;
+    std::cout << " - Number of vertices: " << data.pointCount << std::endl;
+    if (data.textureID) {
+        std::cout << " - Texture loaded: Yes" << std::endl;
+        std::cout << " - Texture dimensions: " << textureWidth << "x" << textureHeight << std::endl;
+    }
+    else {
+        std::cout << " - Texture loaded: No" << std::endl;
+    }
+    std::cout << " - Model position: (" << position.x << ", " << position.y << ", " << position.z << ")" << std::endl;
 
     aiReleaseImport(scene);
     return data;
@@ -169,9 +194,12 @@ const char* fragmentShaderSource = R"(
 #version 330 core
 in vec3 fragPosition;
 in vec3 fragNormal;
+in vec2 fragTexcoord; // 传递的纹理坐标
 
 uniform sampler2D textureSampler; // 2D 纹理采样器
 uniform vec3 viewPosition;
+uniform int useTexture;           // 是否使用纹理
+uniform vec3 defaultColor;        // 默认颜色
 
 out vec4 fragColor;
 
@@ -183,11 +211,20 @@ void main() {
     vec3 lightDir = normalize(vec3(0.0, 1.0, 1.0)); // 光源方向
     float diff = max(dot(normal, lightDir), 0.0);
 
-    vec3 textureColor = texture(textureSampler, fragPosition.xy).rgb; // 使用 2D 纹理
+    vec3 textureColor;
+    if (useTexture == 1) {
+        // 使用纹理
+        textureColor = texture(textureSampler, fragTexcoord).rgb;
+    } else {
+        // 使用默认颜色
+        textureColor = defaultColor;
+    }
+
     vec3 finalColor = diff * textureColor;
 
     fragColor = vec4(finalColor, 1.0);
 }
+
 
 )";
 
@@ -261,23 +298,33 @@ void initBuffers() {
     glGenVertexArrays(9, vao);
     glGenBuffers(9, vboVertices);
     glGenBuffers(9, vboNormals);
+    glGenBuffers(9, vboTexCoords); // 为纹理坐标生成缓冲区
 
     for (int i = 0; i < 9; i++) {
         glBindVertexArray(vao[i]);
 
+        // 顶点位置
         glBindBuffer(GL_ARRAY_BUFFER, vboVertices[i]);
         glBufferData(GL_ARRAY_BUFFER, modelData[i].vertices.size() * sizeof(float), modelData[i].vertices.data(), GL_STATIC_DRAW);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
         glEnableVertexAttribArray(0);
 
+        // 法线
         glBindBuffer(GL_ARRAY_BUFFER, vboNormals[i]);
         glBufferData(GL_ARRAY_BUFFER, modelData[i].normals.size() * sizeof(float), modelData[i].normals.data(), GL_STATIC_DRAW);
         glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
         glEnableVertexAttribArray(1);
 
+        // 纹理坐标
+        glBindBuffer(GL_ARRAY_BUFFER, vboTexCoords[i]); // 绑定纹理坐标缓冲区
+        glBufferData(GL_ARRAY_BUFFER, modelData[i].texCoords.size() * sizeof(float), modelData[i].texCoords.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, nullptr); // 注意：纹理坐标是 2D
+        glEnableVertexAttribArray(2);
+
         glBindVertexArray(0);
     }
 }
+
 
 // 键盘控制
 void keypress(unsigned char key, int x, int y) {
@@ -302,40 +349,58 @@ void keypress(unsigned char key, int x, int y) {
 
 // 渲染函数
 void display() {
+    // 清除颜色缓冲区和深度缓冲区
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glUseProgram(shaderProgram);
 
+    // 获取 Shader 中的 Uniform 变量位置
     GLuint modelLoc = glGetUniformLocation(shaderProgram, "model");
     GLuint viewLoc = glGetUniformLocation(shaderProgram, "view");
     GLuint projLoc = glGetUniformLocation(shaderProgram, "projection");
     GLuint viewPosLoc = glGetUniformLocation(shaderProgram, "viewPosition");
+    GLuint useTextureLoc = glGetUniformLocation(shaderProgram, "useTexture");
+    GLuint defaultColorLoc = glGetUniformLocation(shaderProgram, "defaultColor");
+    GLuint textureSamplerLoc = glGetUniformLocation(shaderProgram, "textureSampler");
 
+    // 设置视图矩阵和投影矩阵
     glm::mat4 view = getViewMatrix();
     glm::mat4 projection = getProjectionMatrix();
-
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
     glUniform3f(viewPosLoc, 0.0f, 0.0f, cameraDistance);
 
+    // 遍历所有模型并渲染
     for (int i = 0; i < 9; i++) {
-        glm::mat4 model = glm::translate(glm::mat4(1.0f), modelData[i].position); // 使用模型位置
+        // 设置模型矩阵
+        glm::mat4 model = glm::translate(glm::mat4(1.0f), modelData[i].position); // 模型位置
         model = glm::rotate(model, modelRotationY, glm::vec3(0.0f, 1.0f, 0.0f)); // Y 轴旋转
-
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
-        // 绑定该模型的纹理（如果存在）
+        // 判断是否有纹理
         if (modelData[i].textureID) {
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, modelData[i].textureID);
+            glUniform1i(useTextureLoc, 1); // 通知 Shader 使用纹理
+            glActiveTexture(GL_TEXTURE0);  // 激活纹理单元 0
+            glBindTexture(GL_TEXTURE_2D, modelData[i].textureID); // 绑定纹理
+            glUniform1i(textureSamplerLoc, 0); // 将纹理采样器绑定到纹理单元 0
+        }
+        else {
+            glUniform1i(useTextureLoc, 0); // 通知 Shader 不使用纹理
+            glUniform3f(defaultColorLoc, 0.8f, 0.8f, 0.8f); // 设置默认颜色为灰色
         }
 
+        // 绑定 VAO 并绘制
         glBindVertexArray(vao[i]);
         glDrawArrays(GL_TRIANGLES, 0, modelData[i].pointCount);
     }
 
+    // 解绑 VAO
     glBindVertexArray(0);
+
+    // 交换缓冲区
     glutSwapBuffers();
 }
+
+
 
 
 
