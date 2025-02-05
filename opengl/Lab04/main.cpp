@@ -1,0 +1,284 @@
+﻿#include <GL/glew.h>
+#include <GL/freeglut.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#include <assimp/cimport.h>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+#include <iostream>
+#include <vector>
+#include <cmath>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+// 数据结构
+struct ModelData {
+    std::vector<float> vertices;
+    std::vector<float> normals;
+    size_t pointCount = 0;
+};
+
+GLuint vao[9], vboVertices[9], vboNormals[9], shaderProgram, cubeMapTexture;
+ModelData modelData[9];
+
+// 控制变量
+float cameraDistance = 10.0f;  // 视角距离
+float cameraAngleX = 0.0f;     // 视角绕 X 轴旋转角度
+float cameraAngleY = 0.0f;     // 视角绕 Y 轴旋转角度
+float modelRotationY = 0.0f;   // 模型绕 Y 轴旋转角度
+
+// 加载模型函数
+ModelData loadModel(const char* fileName) {
+    ModelData data;
+    const aiScene* scene = aiImportFile(fileName, aiProcess_Triangulate | aiProcess_GenNormals);
+    if (!scene) {
+        std::cerr << "Error loading model: " << fileName << std::endl;
+        return data;
+    }
+
+    const aiMesh* mesh = scene->mMeshes[0];
+    data.pointCount = mesh->mNumVertices;
+
+    for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+        const aiVector3D* pos = &mesh->mVertices[i];
+        const aiVector3D* norm = &mesh->mNormals[i];
+        data.vertices.push_back(pos->x);
+        data.vertices.push_back(pos->y);
+        data.vertices.push_back(pos->z);
+        data.normals.push_back(norm->x);
+        data.normals.push_back(norm->y);
+        data.normals.push_back(norm->z);
+    }
+
+    aiReleaseImport(scene);
+    return data;
+}
+
+// 顶点着色器源码
+const char* vertexShaderSource = R"(
+#version 330 core
+layout(location = 0) in vec3 vertex_position;
+layout(location = 1) in vec3 vertex_normal;
+
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+
+out vec3 fragPosition;
+out vec3 fragNormal;
+
+void main() {
+    fragPosition = vec3(model * vec4(vertex_position, 1.0));
+    fragNormal = mat3(transpose(inverse(model))) * vertex_normal;
+    gl_Position = projection * view * vec4(fragPosition, 1.0);
+}
+)";
+
+// 片段着色器源码
+const char* fragmentShaderSource = R"(
+#version 330 core
+in vec3 fragPosition;
+in vec3 fragNormal;
+
+uniform samplerCube environmentMap;
+uniform vec3 viewPosition;
+
+out vec4 fragColor;
+
+void main() {
+    vec3 normal = normalize(fragNormal);
+    vec3 viewDir = normalize(viewPosition - fragPosition);
+
+    vec3 reflectDir = reflect(-viewDir, normal);
+    vec3 reflectedColor = texture(environmentMap, reflectDir).rgb;
+
+    fragColor = vec4(reflectedColor, 1.0);
+}
+)";
+
+// 编译单个着色器
+GLuint compileShader(GLenum shaderType, const char* shaderSource) {
+    GLuint shader = glCreateShader(shaderType);
+    glShaderSource(shader, 1, &shaderSource, nullptr);
+    glCompileShader(shader);
+
+    // 检查编译错误
+    GLint success;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char log[512];
+        glGetShaderInfoLog(shader, 512, nullptr, log);
+        std::cerr << "Shader compilation error: " << log << std::endl;
+    }
+
+    return shader;
+}
+
+// 初始化着色器程序
+void initShaders() {
+    // 编译顶点着色器
+    GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexShaderSource);
+
+    // 编译片段着色器
+    GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSource);
+
+    // 链接着色器程序
+    shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+    glLinkProgram(shaderProgram);
+
+    // 检查链接错误
+    GLint success;
+    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
+    if (!success) {
+        char log[512];
+        glGetProgramInfoLog(shaderProgram, 512, nullptr, log);
+        std::cerr << "Shader program linking error: " << log << std::endl;
+    }
+
+    // 删除着色器对象
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+}
+
+
+// 加载立方体贴图
+GLuint loadCubeMap(std::vector<std::string> faces) {
+    GLuint textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+
+    for (unsigned int i = 0; i < faces.size(); i++) {
+        int width, height, nrChannels;
+        unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
+        if (data) {
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+            stbi_image_free(data);
+        }
+        else {
+            std::cerr << "Failed to load cubemap texture at " << faces[i] << std::endl;
+            stbi_image_free(data);
+        }
+    }
+
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    return textureID;
+}
+
+// 设置视图矩阵和投影矩阵
+glm::mat4 getViewMatrix() {
+    glm::mat4 view = glm::lookAt(
+        glm::vec3(cameraDistance * sin(cameraAngleY), 0.0f, cameraDistance * cos(cameraAngleY)),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f)
+    );
+    return view;
+}
+
+glm::mat4 getProjectionMatrix() {
+    return glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
+}
+
+// 初始化缓冲区
+void initBuffers() {
+    glGenVertexArrays(9, vao);
+    glGenBuffers(9, vboVertices);
+    glGenBuffers(9, vboNormals);
+
+    for (int i = 0; i < 9; i++) {
+        glBindVertexArray(vao[i]);
+
+        glBindBuffer(GL_ARRAY_BUFFER, vboVertices[i]);
+        glBufferData(GL_ARRAY_BUFFER, modelData[i].vertices.size() * sizeof(float), modelData[i].vertices.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+        glEnableVertexAttribArray(0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, vboNormals[i]);
+        glBufferData(GL_ARRAY_BUFFER, modelData[i].normals.size() * sizeof(float), modelData[i].normals.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+        glEnableVertexAttribArray(1);
+
+        glBindVertexArray(0);
+    }
+}
+
+// 键盘控制
+void keypress(unsigned char key, int x, int y) {
+    switch (key) {
+    case 'w': cameraDistance -= 2.5f; break; // 拉近视角
+    case 's': cameraDistance += 2.5f; break; // 拉远视角
+    case 'a': cameraAngleY -= 0.05f; break;   // 左旋视角
+    case 'd': cameraAngleY += 0.05f; break;   // 右旋视角
+    case 'q': modelRotationY -= 0.1f; break; // 模型左旋
+    case 'e': modelRotationY += 0.1f; break; // 模型右旋
+    }
+    glutPostRedisplay();
+}
+
+// 渲染函数
+void display() {
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glUseProgram(shaderProgram);
+
+    GLuint modelLoc = glGetUniformLocation(shaderProgram, "model");
+    GLuint viewLoc = glGetUniformLocation(shaderProgram, "view");
+    GLuint projLoc = glGetUniformLocation(shaderProgram, "projection");
+    GLuint viewPosLoc = glGetUniformLocation(shaderProgram, "viewPosition");
+
+    glm::mat4 view = getViewMatrix();
+    glm::mat4 projection = getProjectionMatrix();
+
+    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+    glUniform3f(viewPosLoc, 0.0f, 0.0f, cameraDistance);
+
+    glActiveTexture(GL_TEXTURE0);  // 激活纹理单元 0
+    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
+
+    for (int i = 0; i < 9; i++) {
+        glm::mat4 model = glm::rotate(glm::mat4(1.0f), modelRotationY, glm::vec3(0.0f, 1.0f, 0.0f));
+
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+        glBindVertexArray(vao[i]);
+        glDrawArrays(GL_TRIANGLES, 0, modelData[i].pointCount);
+    }
+
+    glBindVertexArray(0);
+    glutSwapBuffers();
+}
+
+// 初始化 OpenGL
+void initOpenGL() {
+    glewInit();
+    glEnable(GL_DEPTH_TEST);
+    initShaders();
+
+    std::vector<std::string> faces = {
+        "diffuse.jpg", "diffuse.jpg", "diffuse.jpg", "diffuse.jpg", "diffuse.jpg", "diffuse.jpg"
+    };
+    cubeMapTexture = loadCubeMap(faces);
+
+    modelData[0] = loadModel("monkey.dae");
+    // 加载其他模型...
+
+    initBuffers();
+}
+
+int main(int argc, char** argv) {
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
+    glutInitWindowSize(800, 600);
+    glutCreateWindow("Lab 1 - Phong/Toon/Cook-Torrance lighting model");
+    initOpenGL();
+    glutDisplayFunc(display);
+    glutKeyboardFunc(keypress);
+    glutMainLoop();
+    return 0;
+}

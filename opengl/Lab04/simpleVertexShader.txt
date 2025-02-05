@@ -1,0 +1,31 @@
+#version 330 core
+
+layout(location = 0) in vec3 vertex_position;
+layout(location = 1) in vec3 vertex_normal;
+layout(location = 2) in vec2 vertex_texcoord;
+
+out vec3 LightIntensity;
+out vec2 Texcoord;
+out vec3 FragPos; // 传递片段位置
+out vec3 Normal;  // 传递法线
+
+uniform vec4 LightPosition;
+uniform vec3 Kd; // 漫反射颜色
+uniform vec3 Ld; // 光源强度
+
+uniform mat4 view;
+uniform mat4 proj;
+uniform mat4 model;
+
+void main() {
+    vec4 eyeCoords = view * model * vec4(vertex_position, 1.0);
+    vec3 lightDir = normalize(vec3(LightPosition) - eyeCoords.xyz);
+    float diff = max(dot(normalize(vertex_normal), lightDir), 0.0);
+    
+    LightIntensity = Ld * Kd * diff;
+    Texcoord = vertex_texcoord;
+    FragPos = eyeCoords.xyz; // 传递片段位置
+    Normal = normalize(vertex_normal); // 传递法线
+
+    gl_Position = proj * eyeCoords;
+}

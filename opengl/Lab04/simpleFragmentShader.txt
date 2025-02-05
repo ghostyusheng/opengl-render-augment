@@ -1,0 +1,50 @@
+#version 330 core
+
+in vec3 LightIntensity;
+in vec2 Texcoord;
+in vec3 FragPos; // 接收片段位置
+in vec3 Normal;  // 接收法线
+
+out vec4 fragColor;
+
+uniform bool useOriginShader;
+uniform bool useTexture; // 确保定义 useTexture
+
+uniform vec3 ambientLight;
+uniform vec3 Kd; // 漫反射颜色
+uniform vec3 Ks; // 镜面反射颜色
+uniform float Shininess; // 高光强度
+
+uniform vec3 viewPos; // 观察者位置
+uniform vec3 diffuseColor; // 确保定义 diffuseColor
+uniform sampler2D objectTexture; // 确保定义纹理采样器
+
+void main() {
+    if (useOriginShader) {
+        vec3 baseColor;
+
+        if (useTexture) {
+            vec4 textureColor = texture(objectTexture, Texcoord);
+            baseColor = textureColor.rgb; // 使用纹理颜色
+        } else {
+            baseColor = diffuseColor; // 使用 diffuseColor
+        }
+
+        // 将环境光添加到光强度中
+        vec3 finalColor = (LightIntensity + ambientLight) * baseColor;
+        fragColor = vec4(finalColor, 1.0); // 使用 1.0 作为 alpha 值
+    } else {
+        vec3 ambient = ambientLight * Kd; // 环境光
+        vec3 diffuse = LightIntensity; // 漫反射光
+
+        // 计算镜面光
+        vec3 lightDir = normalize(viewPos - FragPos);
+        vec3 viewDir = normalize(viewPos - FragPos);
+        vec3 reflectDir = reflect(-lightDir, Normal);
+        float spec = pow(max(dot(viewDir, reflectDir), 0.0), Shininess);
+        vec3 specular = Ks * spec;
+
+        vec3 finalColor = ambient + diffuse + specular;
+        fragColor = vec4(finalColor, 1.0);
+    }
+}
