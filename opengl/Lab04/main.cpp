@@ -14,12 +14,14 @@
 
 // 数据结构
 struct ModelData {
-    std::vector<float> vertices;
-    std::vector<float> normals;
-    GLuint textureID = 0;       // 纹理 ID
+    std::vector<float> vertices;   // 顶点数据
+    std::vector<float> normals;    // 法线数据
+    std::vector<float> texCoords;  // 纹理坐标数据
+    GLuint textureID = 0;          // 纹理 ID
     glm::vec3 position = { 0.0f, 0.0f, 0.0f }; // 空间位置
-    size_t pointCount = 0;
+    size_t pointCount = 0;         // 顶点数量
 };
+
 
 GLuint vao[9], vboVertices[9], vboNormals[9], shaderProgram, cubeMapTexture;
 ModelData modelData[9];
@@ -46,16 +48,62 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
         const aiVector3D* pos = &mesh->mVertices[i];
         const aiVector3D* norm = &mesh->mNormals[i];
+        const aiVector3D* texCoord = mesh->mTextureCoords[0] ? &mesh->mTextureCoords[0][i] : nullptr;
+
         data.vertices.push_back(pos->x);
         data.vertices.push_back(pos->y);
         data.vertices.push_back(pos->z);
         data.normals.push_back(norm->x);
         data.normals.push_back(norm->y);
         data.normals.push_back(norm->z);
+        if (texCoord) {
+            data.texCoords.push_back(texCoord->x);
+            data.texCoords.push_back(texCoord->y);
+        }
+        else {
+            data.texCoords.push_back(0.0f); // 默认纹理坐标
+            data.texCoords.push_back(0.0f);
+        }
     }
 
-    // 加载纹理（如果提供）
-    if (textureFile) {
+    // 检查模型是否有自带纹理
+    bool hasModelTexture = false;
+    if (scene->mNumMaterials > 0) {
+        aiMaterial* material = scene->mMaterials[0];
+        aiString texturePath;
+        if (material->GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS) {
+            hasModelTexture = true;
+
+            // 加载模型自带纹理
+            std::string directory = fileName;
+            directory = directory.substr(0, directory.find_last_of('/'));
+            std::string fullTexturePath = directory + "/" + texturePath.C_Str();
+
+            glGenTextures(1, &data.textureID);
+            glBindTexture(GL_TEXTURE_2D, data.textureID);
+
+            int width, height, nrChannels;
+            unsigned char* dataTexture = stbi_load(fullTexturePath.c_str(), &width, &height, &nrChannels, 0);
+            if (dataTexture) {
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, dataTexture);
+                glGenerateMipmap(GL_TEXTURE_2D);
+                stbi_image_free(dataTexture);
+                std::cout << "Success to load model texture: " << fullTexturePath << std::endl;
+            }
+            else {
+                std::cerr << "Failed to load model texture: " << fullTexturePath << std::endl;
+                stbi_image_free(dataTexture);
+            }
+
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        }
+    }
+
+    // 如果模型没有自带纹理，但提供了纹理文件，则加载提供的纹理
+    if (!hasModelTexture && textureFile) {
         glGenTextures(1, &data.textureID);
         glBindTexture(GL_TEXTURE_2D, data.textureID);
 
@@ -76,6 +124,11 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    }
+
+    // 如果既没有模型纹理，也没有提供纹理文件，则设置 textureID 为 0，表示使用默认颜色
+    if (!hasModelTexture && !textureFile) {
+        data.textureID = 0; // 使用默认颜色
     }
 
     // 设置模型空间位置
