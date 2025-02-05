@@ -71,7 +71,7 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
             data.texCoords.push_back(0.0f);
 
             // 打印默认纹理坐标
-            std::cout << "Vertex " << i << " Texture Coord: (0.0, 0.0)" << std::endl;
+            //std::cout << "Vertex " << i << " Texture Coord: (0.0, 0.0)" << std::endl;
         }
     }
 
