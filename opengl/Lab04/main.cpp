@@ -16,6 +16,8 @@
 struct ModelData {
     std::vector<float> vertices;
     std::vector<float> normals;
+    GLuint textureID = 0;       // 纹理 ID
+    glm::vec3 position = { 0.0f, 0.0f, 0.0f }; // 空间位置
     size_t pointCount = 0;
 };
 
@@ -28,8 +30,9 @@ float cameraAngleX = 0.0f;     // 视角绕 X 轴旋转角度
 float cameraAngleY = 0.0f;     // 视角绕 Y 轴旋转角度
 float modelRotationY = 0.0f;   // 模型绕 Y 轴旋转角度
 
+
 // 加载模型函数
-ModelData loadModel(const char* fileName) {
+ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm::vec3 position = { 0.0f, 0.0f, 0.0f }) {
     ModelData data;
     const aiScene* scene = aiImportFile(fileName, aiProcess_Triangulate | aiProcess_GenNormals);
     if (!scene) {
@@ -51,9 +54,36 @@ ModelData loadModel(const char* fileName) {
         data.normals.push_back(norm->z);
     }
 
+    // 加载纹理（如果提供）
+    if (textureFile) {
+        glGenTextures(1, &data.textureID);
+        glBindTexture(GL_TEXTURE_2D, data.textureID);
+
+        int width, height, nrChannels;
+        unsigned char* dataTexture = stbi_load(textureFile, &width, &height, &nrChannels, 0);
+        if (dataTexture) {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, dataTexture);
+            glGenerateMipmap(GL_TEXTURE_2D);
+            stbi_image_free(dataTexture);
+        }
+        else {
+            std::cerr << "Failed to load texture: " << textureFile << std::endl;
+            stbi_image_free(dataTexture);
+        }
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    }
+
+    // 设置模型空间位置
+    data.position = position;
+
     aiReleaseImport(scene);
     return data;
 }
+
 
 // 顶点着色器源码
 const char* vertexShaderSource = R"(
@@ -174,13 +204,18 @@ GLuint loadCubeMap(std::vector<std::string> faces) {
 
 // 设置视图矩阵和投影矩阵
 glm::mat4 getViewMatrix() {
-    glm::mat4 view = glm::lookAt(
-        glm::vec3(cameraDistance * sin(cameraAngleY), 0.0f, cameraDistance * cos(cameraAngleY)),
-        glm::vec3(0.0f, 0.0f, 0.0f),
-        glm::vec3(0.0f, 1.0f, 0.0f)
-    );
-    return view;
+    // 根据球面坐标计算相机位置
+    float cameraX = cameraDistance * cos(cameraAngleX) * sin(cameraAngleY);
+    float cameraY = cameraDistance * sin(cameraAngleX);
+    float cameraZ = cameraDistance * cos(cameraAngleX) * cos(cameraAngleY);
+
+    glm::vec3 cameraPos = glm::vec3(cameraX, cameraY, cameraZ);
+    glm::vec3 target = glm::vec3(0.0f, 0.0f, 0.0f); // 目标点
+    glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);     // 世界坐标系的上方向
+
+    return glm::lookAt(cameraPos, target, up);
 }
+
 
 glm::mat4 getProjectionMatrix() {
     return glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
@@ -214,13 +249,21 @@ void keypress(unsigned char key, int x, int y) {
     switch (key) {
     case 'w': cameraDistance -= 2.5f; break; // 拉近视角
     case 's': cameraDistance += 2.5f; break; // 拉远视角
-    case 'a': cameraAngleY -= 0.05f; break;   // 左旋视角
-    case 'd': cameraAngleY += 0.05f; break;   // 右旋视角
+    case 'a': cameraAngleY -= 0.05f; break;  // 左旋视角
+    case 'd': cameraAngleY += 0.05f; break;  // 右旋视角
+    case 'i': cameraAngleX += 0.05f; break;  // 上旋视角
+    case 'k': cameraAngleX -= 0.05f; break;  // 下旋视角
     case 'q': modelRotationY -= 0.1f; break; // 模型左旋
     case 'e': modelRotationY += 0.1f; break; // 模型右旋
     }
+
+    // 限制 cameraAngleX 的值在 -89 到 89 度之间
+    if (cameraAngleX > glm::radians(89.0f)) cameraAngleX = glm::radians(89.0f);
+    if (cameraAngleX < glm::radians(-89.0f)) cameraAngleX = glm::radians(-89.0f);
+
     glutPostRedisplay();
 }
+
 
 // 渲染函数
 void display() {
@@ -243,9 +286,16 @@ void display() {
     glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
 
     for (int i = 0; i < 9; i++) {
-        glm::mat4 model = glm::rotate(glm::mat4(1.0f), modelRotationY, glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::mat4 model = glm::translate(glm::mat4(1.0f), modelData[i].position); // 使用模型位置
+        model = glm::rotate(model, modelRotationY, glm::vec3(0.0f, 1.0f, 0.0f)); // Y 轴旋转
 
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+
+        // 绑定纹理（如果存在）
+        if (modelData[i].textureID) {
+            glBindTexture(GL_TEXTURE_2D, modelData[i].textureID);
+        }
+
         glBindVertexArray(vao[i]);
         glDrawArrays(GL_TRIANGLES, 0, modelData[i].pointCount);
     }
@@ -253,6 +303,7 @@ void display() {
     glBindVertexArray(0);
     glutSwapBuffers();
 }
+
 
 // 初始化 OpenGL
 void initOpenGL() {
@@ -265,11 +316,13 @@ void initOpenGL() {
     };
     cubeMapTexture = loadCubeMap(faces);
 
-    modelData[0] = loadModel("monkey.dae");
+    modelData[0] = loadModel("monkey.dae", "diffuse.jpg", { 0.0f, 0.0f, 0.0f });
+    modelData[1] = loadModel("red_cube.dae", "diffuse.jpg", { 5.0f, 0.0f, 0.0f });
     // 加载其他模型...
 
     initBuffers();
 }
+
 
 int main(int argc, char** argv) {
     glutInit(&argc, argv);
