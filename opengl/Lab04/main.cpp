@@ -378,7 +378,9 @@ void main() {
     // 添加环境光到最终颜色
     finalColor = mix(ambient, finalColor, 0.8);
     
-    fragColor = vec4(finalColor * diff * textureColor, 1.0);
+    //finalColor = vec4(finalColor * diff * textureColor, 1.0);
+    fragColor = vec4(finalColor, 0.5); // 50% 透明
+
 }
 )";
 
@@ -521,6 +523,9 @@ void keypress(unsigned char key, int x, int y) {
 void display() {
     // 清除颜色缓冲区和深度缓冲区
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     glUseProgram(shaderProgram);
 
     // 获取 Shader 中的 Uniform 变量位置
