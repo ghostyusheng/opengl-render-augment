@@ -12,6 +12,11 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+// 新增全局变量
+GLuint skyboxShader;  // 天空盒着色器程序
+GLuint skyboxVAO, skyboxVBO;  // 天空盒VAO/VBO
+GLuint cubeMapTexture;
+
 // 数据结构
 struct ModelData {
     std::vector<float> vertices;   // 顶点数据
@@ -23,81 +28,133 @@ struct ModelData {
 };
 
 // 立方体顶点数据（NDC坐标，已移除Z分量）
-float skyboxVertices[] = {
-    // positions          
-    -1.0f,  1.0f, -1.0f,
-    -1.0f, -1.0f, -1.0f,
-     1.0f, -1.0f, -1.0f,
-     1.0f, -1.0f, -1.0f,
-     1.0f,  1.0f, -1.0f,
-    -1.0f,  1.0f, -1.0f,
+void initSkybox() {
+    // 1. 创建立方体顶点数据
+    // 立方体顶点数据（NDC坐标，已移除Z分量）
+    float skyboxVertices[] = {
+        // positions          
+        -1.0f,  1.0f, -1.0f,
+        -1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
 
-    -1.0f, -1.0f,  1.0f,
-    -1.0f, -1.0f, -1.0f,
-    -1.0f,  1.0f, -1.0f,
-    -1.0f,  1.0f, -1.0f,
-    -1.0f,  1.0f,  1.0f,
-    -1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
 
-     1.0f, -1.0f, -1.0f,
-     1.0f, -1.0f,  1.0f,
-     1.0f,  1.0f,  1.0f,
-     1.0f,  1.0f,  1.0f,
-     1.0f,  1.0f, -1.0f,
-     1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
 
-    -1.0f, -1.0f,  1.0f,
-    -1.0f,  1.0f,  1.0f,
-     1.0f,  1.0f,  1.0f,
-     1.0f,  1.0f,  1.0f,
-     1.0f, -1.0f,  1.0f,
-    -1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
 
-    -1.0f,  1.0f, -1.0f,
-     1.0f,  1.0f, -1.0f,
-     1.0f,  1.0f,  1.0f,
-     1.0f,  1.0f,  1.0f,
-    -1.0f,  1.0f,  1.0f,
-    -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+         1.0f,  1.0f, -1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f,
+        -1.0f,  1.0f, -1.0f,
 
-    -1.0f, -1.0f, -1.0f,
-    -1.0f, -1.0f,  1.0f,
-     1.0f, -1.0f, -1.0f,
-     1.0f, -1.0f, -1.0f,
-    -1.0f, -1.0f,  1.0f,
-     1.0f, -1.0f,  1.0f
-};
+        -1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,
+         1.0f, -1.0f,  1.0f
+    };
+
+
+    // 2. 创建VAO/VBO
+    glGenVertexArrays(1, &skyboxVAO);
+    glGenBuffers(1, &skyboxVBO);
+    glBindVertexArray(skyboxVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, skyboxVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), &skyboxVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glBindVertexArray(0);
+
+    // 3. 加载立方体贴图纹理
+    std::vector<std::string> faces = {
+        "right.jpg", "left.jpg",
+        "top.jpg", "bottom.jpg",
+        "front.jpg", "back.jpg"
+    };
+
+    glGenTextures(1, &cubeMapTexture);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
+
+    // 加载6个面的图片
+    int width, height, nrChannels;
+    for (unsigned int i = 0; i < faces.size(); i++) {
+        unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
+        if (data) {
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
+                0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+            stbi_image_free(data);
+        }
+        else {
+            std::cout << "Cubemap texture failed to load at path: " << faces[i] << std::endl;
+            stbi_image_free(data);
+        }
+    }
+
+    // 设置纹理参数
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+}
+
 
 // 顶点着色器
 const char* skyboxVertexShader = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
+
 out vec3 TexCoords;
-uniform mat4 projection;
+
 uniform mat4 view;
+uniform mat4 projection;
+
 void main() {
     TexCoords = aPos;
-    mat4 rotView = mat4(mat3(view)); // 移除位移分量
-    gl_Position = projection * rotView * vec4(aPos, 1.0);
+    vec4 pos = projection * view * vec4(aPos, 1.0);
+    gl_Position = pos.xyww; // 使用最大深度值
 }
+
 )";
 
 // 片段着色器
 const char* skyboxFragmentShader = R"(
 #version 330 core
-in vec3 TexCoords;
 out vec4 FragColor;
+
+in vec3 TexCoords;
+
 uniform samplerCube skybox;
+
 void main() {
     FragColor = texture(skybox, TexCoords);
 }
+
 )";
 
-// 新增全局变量
-GLuint skyboxShader;  // 天空盒着色器程序
-GLuint skyboxVAO, skyboxVBO;  // 天空盒VAO/VBO
-
-GLuint vao[9], vboVertices[9], vboNormals[9], vboTexCoords[9], shaderProgram, cubeMapTexture;
+GLuint vao[9], vboVertices[9], vboNormals[9], vboTexCoords[9], shaderProgram;
 ModelData modelData[9];
 
 // 控制变量
@@ -469,6 +526,36 @@ void display() {
         glDrawArrays(GL_TRIANGLES, 0, modelData[i].pointCount);
     }
 
+    // 渲染天空盒
+     // 修复后的天空盒渲染部分
+    glDepthFunc(GL_LEQUAL);  // 修改深度测试比较方式
+    glUseProgram(skyboxShader);
+
+    // 创建无位移的视图矩阵（关键修复点）
+    glm::mat4 skyboxView = glm::mat4(glm::mat3(view)); // 移除位移分量
+
+    // 获取uniform位置（建议提前缓存这些位置）
+    GLint skyboxViewLoc = glGetUniformLocation(skyboxShader, "view");
+    GLint skyboxProjLoc = glGetUniformLocation(skyboxShader, "projection");
+
+    // 绑定立方体贴图
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
+
+    // 传递矩阵（使用处理后的视图矩阵）
+    glUniformMatrix4fv(skyboxViewLoc, 1, GL_FALSE, glm::value_ptr(skyboxView));
+    glUniformMatrix4fv(skyboxProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
+
+    // 渲染天空盒
+    glBindVertexArray(skyboxVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glBindVertexArray(0);
+
+    // 恢复深度设置
+    glDepthFunc(GL_LESS);
+    glDepthMask(GL_TRUE); // 如果前面修改过需要恢复
+
+
     // 解绑 VAO
     glBindVertexArray(0);
 
@@ -485,6 +572,7 @@ void initOpenGL() {
     glewInit();
     glEnable(GL_DEPTH_TEST);
     initShaders();
+    initSkybox();
 
     // 创建天空盒着色器程序（替换原有错误代码）
     skyboxShader = glCreateProgram();
@@ -506,6 +594,7 @@ void initOpenGL() {
     // 清理着色器对象
     glDeleteShader(vs);
     glDeleteShader(fs);
+
 
 
     // 加载模型及其纹理
