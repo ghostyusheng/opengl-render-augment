@@ -22,6 +22,80 @@ struct ModelData {
     size_t pointCount = 0;         // 顶点数量
 };
 
+// 立方体顶点数据（NDC坐标，已移除Z分量）
+float skyboxVertices[] = {
+    // positions          
+    -1.0f,  1.0f, -1.0f,
+    -1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f, -1.0f,
+     1.0f,  1.0f, -1.0f,
+    -1.0f,  1.0f, -1.0f,
+
+    -1.0f, -1.0f,  1.0f,
+    -1.0f, -1.0f, -1.0f,
+    -1.0f,  1.0f, -1.0f,
+    -1.0f,  1.0f, -1.0f,
+    -1.0f,  1.0f,  1.0f,
+    -1.0f, -1.0f,  1.0f,
+
+     1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+     1.0f,  1.0f, -1.0f,
+     1.0f, -1.0f, -1.0f,
+
+    -1.0f, -1.0f,  1.0f,
+    -1.0f,  1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+     1.0f, -1.0f,  1.0f,
+    -1.0f, -1.0f,  1.0f,
+
+    -1.0f,  1.0f, -1.0f,
+     1.0f,  1.0f, -1.0f,
+     1.0f,  1.0f,  1.0f,
+     1.0f,  1.0f,  1.0f,
+    -1.0f,  1.0f,  1.0f,
+    -1.0f,  1.0f, -1.0f,
+
+    -1.0f, -1.0f, -1.0f,
+    -1.0f, -1.0f,  1.0f,
+     1.0f, -1.0f, -1.0f,
+     1.0f, -1.0f, -1.0f,
+    -1.0f, -1.0f,  1.0f,
+     1.0f, -1.0f,  1.0f
+};
+
+// 顶点着色器
+const char* skyboxVertexShader = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+out vec3 TexCoords;
+uniform mat4 projection;
+uniform mat4 view;
+void main() {
+    TexCoords = aPos;
+    mat4 rotView = mat4(mat3(view)); // 移除位移分量
+    gl_Position = projection * rotView * vec4(aPos, 1.0);
+}
+)";
+
+// 片段着色器
+const char* skyboxFragmentShader = R"(
+#version 330 core
+in vec3 TexCoords;
+out vec4 FragColor;
+uniform samplerCube skybox;
+void main() {
+    FragColor = texture(skybox, TexCoords);
+}
+)";
+
+// 新增全局变量
+GLuint skyboxShader;  // 天空盒着色器程序
+GLuint skyboxVAO, skyboxVBO;  // 天空盒VAO/VBO
 
 GLuint vao[9], vboVertices[9], vboNormals[9], vboTexCoords[9], shaderProgram, cubeMapTexture;
 ModelData modelData[9];
@@ -31,6 +105,8 @@ float cameraDistance = 10.0f;  // 视角距离
 float cameraAngleX = 0.0f;     // 视角绕 X 轴旋转角度
 float cameraAngleY = 0.0f;     // 视角绕 Y 轴旋转角度
 float modelRotationY = 0.0f;   // 模型绕 Y 轴旋转角度
+
+
 
 
 // 加载模型函数
@@ -409,6 +485,28 @@ void initOpenGL() {
     glewInit();
     glEnable(GL_DEPTH_TEST);
     initShaders();
+
+    // 创建天空盒着色器程序（替换原有错误代码）
+    skyboxShader = glCreateProgram();
+    GLuint vs = compileShader(GL_VERTEX_SHADER, skyboxVertexShader);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, skyboxFragmentShader);
+    glAttachShader(skyboxShader, vs);
+    glAttachShader(skyboxShader, fs);
+    glLinkProgram(skyboxShader);
+
+    // 检查链接错误
+    GLint success;
+    glGetProgramiv(skyboxShader, GL_LINK_STATUS, &success);
+    if (!success) {
+        char infoLog[512];
+        glGetProgramInfoLog(skyboxShader, 512, NULL, infoLog);
+        std::cerr << "SKYBOX SHADER LINK ERROR: " << infoLog << std::endl;
+    }
+
+    // 清理着色器对象
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+
 
     // 加载模型及其纹理
     modelData[0] = loadModel("monkey.dae", "diffuse.jpg", { 0.0f, 0.0f, 0.0f });
