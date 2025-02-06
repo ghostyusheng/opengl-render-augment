@@ -329,6 +329,7 @@ void main() {
 )";
 
 // 片段着色器源码
+// 修改片段着色器
 const char* fragmentShaderSource = R"(
 #version 330 core
 in vec3 fragPosition;
@@ -350,6 +351,10 @@ void main() {
     vec3 viewDir = normalize(viewPosition - fragPosition);
     vec3 lightDir = normalize(vec3(0.0, 1.0, 1.0));
     float diff = max(dot(normal, lightDir), 0.0);
+    
+    // 添加环境光
+    vec3 ambient = vec3(0.4, 0.4, 0.4); // 20% 的环境光
+    
     vec3 textureColor = useTexture == 1 ? texture(textureSampler, fragTexcoord).rgb : defaultColor;
     
     vec3 reflectDir = reflect(-viewDir, normal);
@@ -357,7 +362,7 @@ void main() {
     vec3 refractDirG = refract(-viewDir, normal, 1.0 / 1.2);
     vec3 refractDirB = refract(-viewDir, normal, 1.0 / 1.3);
     
-    float fresnel = pow(1.0 - dot(viewDir, normal), 3.0) * (1.0 - FresnelRatio) + FresnelRatio;
+    float fresnel = pow(1.0 - dot(viewDir, normal), 5.0) * (1.0 - FresnelRatio) + FresnelRatio;
     
     vec3 finalColor;
     if (currentMode == 0) { // 反射
@@ -369,6 +374,10 @@ void main() {
             finalColor = refractDirG;
         }
     }
+    
+    // 添加环境光到最终颜色
+    finalColor = mix(ambient, finalColor, 0.8);
+    
     fragColor = vec4(finalColor * diff * textureColor, 1.0);
 }
 )";
@@ -626,8 +635,10 @@ void initOpenGL() {
 
 
     // 加载模型及其纹理
-    modelData[0] = loadModel("monkey.dae", "diffuse.jpg", { 0.0f, 0.0f, 0.0f });
-    modelData[1] = loadModel("cube.dae", "asset/facade0.jpg", { 2.0f, 0.0f, 0.0f });
+    modelData[0] = loadModel("pink_cube.dae", "diffuse.jpg", { -2.0f, 0.0f, 0.0f });
+    modelData[1] = loadModel("pink_cube.dae", "diffuse.jpg", { 2.0f, 0.0f, 0.0f });
+    modelData[2] = loadModel("cube.dae", "diffuse.jpg", { 6.0f, 0.0f, 0.0f });
+
     // 加载其他模型...
 
     initBuffers();
