@@ -353,7 +353,7 @@ void main() {
     float diff = max(dot(normal, lightDir), 0.0);
     
     // 添加环境光
-    vec3 ambient = vec3(0.4, 0.4, 0.4); // 20% 的环境光
+    vec3 ambient = vec3(0.2, 0.2, 0.2); // 20% 的环境光
     
     vec3 textureColor = useTexture == 1 ? texture(textureSampler, fragTexcoord).rgb : defaultColor;
     
@@ -362,7 +362,7 @@ void main() {
     vec3 refractDirG = refract(-viewDir, normal, 1.0 / 1.2);
     vec3 refractDirB = refract(-viewDir, normal, 1.0 / 1.3);
     
-    float fresnel = pow(1.0 - dot(viewDir, normal), 5.0) * (1.0 - FresnelRatio) + FresnelRatio;
+    float fresnel = pow(1.0 - dot(viewDir, normal), 3.0) * (1.0 - FresnelRatio) + FresnelRatio;
     
     vec3 finalColor;
     if (currentMode == 0) { // 反射
@@ -500,11 +500,11 @@ void keypress(unsigned char key, int x, int y) {
         std::cout << "Chromatic Aberration: " << (chromaticAberration ? "Enabled" : "Disabled") << std::endl;
         break;
     case 'F':
-        FresnelRatio = glm::clamp(FresnelRatio + 0.1f, 0.0f, 1.0f);
+        FresnelRatio = glm::clamp(FresnelRatio + 0.4f, 0.0f, 4.0f);
         std::cout << "Fresnel Ratio increased: " << FresnelRatio << std::endl;
         break;
     case 'V':
-        FresnelRatio = glm::clamp(FresnelRatio - 0.1f, 0.0f, 1.0f);
+        FresnelRatio = glm::clamp(FresnelRatio - 0.4f, 0.0f, 4.0f);
         std::cout << "Fresnel Ratio decreased: " << FresnelRatio << std::endl;
         break;
  
@@ -635,9 +635,9 @@ void initOpenGL() {
 
 
     // 加载模型及其纹理
-    modelData[0] = loadModel("pink_cube.dae", "diffuse.jpg", { -2.0f, 0.0f, 0.0f });
-    modelData[1] = loadModel("pink_cube.dae", "diffuse.jpg", { 2.0f, 0.0f, 0.0f });
-    modelData[2] = loadModel("cube.dae", "diffuse.jpg", { 6.0f, 0.0f, 0.0f });
+    modelData[0] = loadModel("pink_cube.dae", "diffuse.jpg", { 0.0f, 0.0f, 0.0f });
+    modelData[1] = loadModel("pink_cube.dae", "diffuse.jpg", { 0.0f, 2.5f, 0.0f });
+    modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", { 4.0f, 0.0f, 0.0f });
 
     // 加载其他模型...
 
