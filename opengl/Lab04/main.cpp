@@ -17,6 +17,12 @@ GLuint skyboxShader;  // 天空盒着色器程序
 GLuint skyboxVAO, skyboxVBO;  // 天空盒VAO/VBO
 GLuint cubeMapTexture;
 
+// ---------- 新增全局变量 ----------
+enum EffectMode { REFLECTION, REFRACTION };
+EffectMode currentMode = REFLECTION;  // 当前效果模式
+bool chromaticAberration = false;     // 是否开启色散
+float FresnelRatio = 0.5f;            // 菲涅耳混合系数（0-1）
+
 // 数据结构
 struct ModelData {
     std::vector<float> vertices;   // 顶点数据
@@ -327,38 +333,44 @@ const char* fragmentShaderSource = R"(
 #version 330 core
 in vec3 fragPosition;
 in vec3 fragNormal;
-in vec2 fragTexcoord; // 传递的纹理坐标
+in vec2 fragTexcoord;
 
-uniform sampler2D textureSampler; // 2D 纹理采样器
+uniform sampler2D textureSampler;
 uniform vec3 viewPosition;
-uniform int useTexture;           // 是否使用纹理
-uniform vec3 defaultColor;        // 默认颜色
+uniform int useTexture;
+uniform vec3 defaultColor;
+uniform bool chromaticAberration;
+uniform float FresnelRatio;
+uniform int currentMode; // 0: 反射, 1: 折射
 
 out vec4 fragColor;
 
 void main() {
     vec3 normal = normalize(fragNormal);
     vec3 viewDir = normalize(viewPosition - fragPosition);
-
-    // 简单的漫反射光照
-    vec3 lightDir = normalize(vec3(0.0, 1.0, 1.0)); // 光源方向
+    vec3 lightDir = normalize(vec3(0.0, 1.0, 1.0));
     float diff = max(dot(normal, lightDir), 0.0);
-
-    vec3 textureColor;
-    if (useTexture == 1) {
-        // 使用纹理
-        textureColor = texture(textureSampler, fragTexcoord).rgb;
-    } else {
-        // 使用默认颜色
-        textureColor = defaultColor;
+    vec3 textureColor = useTexture == 1 ? texture(textureSampler, fragTexcoord).rgb : defaultColor;
+    
+    vec3 reflectDir = reflect(-viewDir, normal);
+    vec3 refractDirR = refract(-viewDir, normal, 1.0 / 1.1);
+    vec3 refractDirG = refract(-viewDir, normal, 1.0 / 1.2);
+    vec3 refractDirB = refract(-viewDir, normal, 1.0 / 1.3);
+    
+    float fresnel = pow(1.0 - dot(viewDir, normal), 3.0) * (1.0 - FresnelRatio) + FresnelRatio;
+    
+    vec3 finalColor;
+    if (currentMode == 0) { // 反射
+        finalColor = reflectDir * fresnel;
+    } else { // 折射
+        if (chromaticAberration) {
+            finalColor = vec3(refractDirR.r, refractDirG.g, refractDirB.b);
+        } else {
+            finalColor = refractDirG;
+        }
     }
-
-    vec3 finalColor = diff * textureColor;
-
-    fragColor = vec4(finalColor, 1.0);
+    fragColor = vec4(finalColor * diff * textureColor, 1.0);
 }
-
-
 )";
 
 // 编译单个着色器
@@ -470,11 +482,27 @@ void keypress(unsigned char key, int x, int y) {
     case 'k': cameraAngleX -= 0.05f; break;  // 下旋视角
     case 'q': modelRotationY -= 0.1f; break; // 模型左旋
     case 'e': modelRotationY += 0.1f; break; // 模型右旋
+    case 'R':
+        currentMode = (currentMode == REFLECTION) ? REFRACTION : REFLECTION;
+        std::cout << "Mode switched to: " << (currentMode == REFLECTION ? "Reflection" : "Refraction") << std::endl;
+        break;
+    case 'C':
+        chromaticAberration = !chromaticAberration;
+        std::cout << "Chromatic Aberration: " << (chromaticAberration ? "Enabled" : "Disabled") << std::endl;
+        break;
+    case 'F':
+        FresnelRatio = glm::clamp(FresnelRatio + 0.1f, 0.0f, 1.0f);
+        std::cout << "Fresnel Ratio increased: " << FresnelRatio << std::endl;
+        break;
+    case 'V':
+        FresnelRatio = glm::clamp(FresnelRatio - 0.1f, 0.0f, 1.0f);
+        std::cout << "Fresnel Ratio decreased: " << FresnelRatio << std::endl;
+        break;
+ 
     }
 
     // 限制 cameraAngleX 的值在 -89 到 89 度之间
     if (cameraAngleX > glm::radians(89.0f)) cameraAngleX = glm::radians(89.0f);
-    if (cameraAngleX < glm::radians(-89.0f)) cameraAngleX = glm::radians(-89.0f);
 
     glutPostRedisplay();
 }
