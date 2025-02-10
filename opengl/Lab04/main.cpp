@@ -17,6 +17,14 @@ GLuint skyboxShader;  // 天空盒着色器程序
 GLuint skyboxVAO, skyboxVBO;  // 天空盒VAO/VBO
 GLuint cubeMapTexture;
 
+// 用于控制不同旋转的角度
+float pitchAngle = 0.0f;  // 俯仰
+float rollAngle = 0.0f;   // 横滚
+float yawAngle = 0.0f;    // 偏航
+float propellerAngle = 0.0f;  // 螺旋桨的旋转角度
+
+
+
 // ---------- 新增全局变量 ----------
 enum EffectMode { REFLECTION, REFRACTION };
 EffectMode currentMode = REFLECTION;  // 当前效果模式
@@ -31,6 +39,7 @@ struct ModelData {
     GLuint textureID = 0;          // 纹理 ID
     glm::vec3 position = { 0.0f, 0.0f, 0.0f }; // 空间位置
     size_t pointCount = 0;         // 顶点数量
+    glm::mat4 rotationMatrix = glm::mat4(1.0f); // 旋转矩阵，默认是单位矩阵
 };
 
 // 立方体顶点数据（NDC坐标，已移除Z分量）
@@ -174,7 +183,7 @@ float modelRotationY = 0.0f;   // 模型绕 Y 轴旋转角度
 
 // 加载模型函数
 // 加载模型函数
-ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm::vec3 position = { 0.0f, 0.0f, 0.0f }) {
+ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm::vec3 position = { 0.0f, 0.0f, 0.0f }, float rotateX = 0.0f, float rotateY = 0.0f, float rotateZ = 0.0f) {
     ModelData data;
     const aiScene* scene = aiImportFile(fileName, aiProcess_Triangulate | aiProcess_GenNormals);
     if (!scene) {
@@ -203,7 +212,7 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
             data.texCoords.push_back(texCoord->y);
 
             // 打印纹理坐标
-            std::cout << "Vertex " << i << " Texture Coord: (" << texCoord->x << ", " << texCoord->y << ")" << std::endl;
+            //std::cout << "Vertex " << i << " Texture Coord: (" << texCoord->x << ", " << texCoord->y << ")" << std::endl;
         }
         else {
             data.texCoords.push_back(0.0f); // 默认纹理坐标
@@ -299,6 +308,15 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
     std::cout << " - Model position: (" << position.x << ", " << position.y << ", " << position.z << ")" << std::endl;
 
     aiReleaseImport(scene);
+
+    // 设置模型的初始旋转
+    glm::mat4 rotation = glm::mat4(1.0f);
+    rotation = glm::rotate(rotation, glm::radians(rotateX), glm::vec3(1.0f, 0.0f, 0.0f));
+    rotation = glm::rotate(rotation, glm::radians(rotateY), glm::vec3(0.0f, 1.0f, 0.0f));
+    rotation = glm::rotate(rotation, glm::radians(rotateZ), glm::vec3(0.0f, 0.0f, 1.0f));
+    data.rotationMatrix = rotation; // 保存旋转矩阵
+
+    // 返回模型数据
     return data;
 }
 
@@ -379,7 +397,7 @@ void main() {
     finalColor = mix(ambient, finalColor, 0.8);
     
     //finalColor = vec4(finalColor * diff * textureColor, 1.0);
-    fragColor = vec4(finalColor, 0.5); // 50% 透明
+    fragColor = vec4(finalColor, 1); // 50% 透明
 
 }
 )";
@@ -485,14 +503,14 @@ void initBuffers() {
 // 键盘控制
 void keypress(unsigned char key, int x, int y) {
     switch (key) {
-    case 'w': cameraDistance -= 2.5f; break; // 拉近视角
-    case 's': cameraDistance += 2.5f; break; // 拉远视角
-    case 'a': cameraAngleY -= 0.05f; break;  // 左旋视角
-    case 'd': cameraAngleY += 0.05f; break;  // 右旋视角
+    case 'W': cameraDistance -= 2.5f; break; // 拉近视角
+    case 'S': cameraDistance += 2.5f; break; // 拉远视角
+    case 'A': cameraAngleY -= 0.05f; break;  // 左旋视角
+    case 'D': cameraAngleY += 0.05f; break;  // 右旋视角
     case 'i': cameraAngleX += 0.05f; break;  // 上旋视角
     case 'k': cameraAngleX -= 0.05f; break;  // 下旋视角
-    case 'q': modelRotationY -= 0.1f; break; // 模型左旋
-    case 'e': modelRotationY += 0.1f; break; // 模型右旋
+    case 'Q': modelRotationY -= 0.1f; break; // 模型左旋
+    case 'E': modelRotationY += 0.1f; break; // 模型右旋
     case 'R':
         currentMode = (currentMode == REFLECTION) ? REFRACTION : REFLECTION;
         std::cout << "Mode switched to: " << (currentMode == REFLECTION ? "Reflection" : "Refraction") << std::endl;
@@ -509,7 +527,13 @@ void keypress(unsigned char key, int x, int y) {
         FresnelRatio = glm::clamp(FresnelRatio - 0.4f, 0.0f, 4.0f);
         std::cout << "Fresnel Ratio decreased: " << FresnelRatio << std::endl;
         break;
- 
+
+        case 'w': pitchAngle += 5.0f; break;  // 俯仰向上
+        case 's': pitchAngle -= 5.0f; break;  // 俯仰向下
+        case 'a': rollAngle += 5.0f; break;   // 横滚向左
+        case 'd': rollAngle -= 5.0f; break;   // 横滚向右
+        case 'q': yawAngle += 5.0f; break;    // 偏航向左
+        case 'e': yawAngle -= 5.0f; break;    // 偏航向右
     }
 
     // 限制 cameraAngleX 的值在 -89 到 89 度之间
@@ -527,6 +551,8 @@ void display() {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     glUseProgram(shaderProgram);
+
+    propellerAngle += 1.0f;
 
     // 获取 Shader 中的 Uniform 变量位置
     GLuint modelLoc = glGetUniformLocation(shaderProgram, "model");
@@ -548,7 +574,29 @@ void display() {
     for (int i = 0; i < 9; i++) {
         // 设置模型矩阵
         glm::mat4 model = glm::translate(glm::mat4(1.0f), modelData[i].position); // 模型位置
+
+        // 使用模型的初始旋转矩阵
+        model = model * modelData[i].rotationMatrix;
         model = glm::rotate(model, modelRotationY, glm::vec3(0.0f, 1.0f, 0.0f)); // Y 轴旋转
+
+        // 对螺旋桨模型应用旋转（假设螺旋桨是 modelData[0]）
+        if (i == 0) {  // 假设螺旋桨在 modelData[0]
+            glm::mat4 propellerRotation = glm::rotate(glm::mat4(1.0f), glm::radians(propellerAngle), glm::vec3(0.0f, 1.0f, 0.0f));
+            model = model * propellerRotation;  // 将旋转矩阵应用到螺旋桨模型
+        }
+
+        // 使用模型的旋转矩阵
+        //model = model * modelData[i].rotationMatrix;
+
+        // 传递给着色器
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+
+        // 俯仰、横滚和偏航
+        model = glm::rotate(model, glm::radians(pitchAngle), glm::vec3(1.0f, 0.0f, 0.0f));  // 俯仰旋转
+        model = glm::rotate(model, glm::radians(rollAngle), glm::vec3(0.0f, 0.0f, 1.0f));   // 横滚旋转
+        model = glm::rotate(model, glm::radians(yawAngle), glm::vec3(0.0f, 1.0f, 0.0f));    // 偏航旋转
+
+        // 传递给着色器
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
         // 判断是否有纹理
@@ -640,9 +688,9 @@ void initOpenGL() {
 
 
     // 加载模型及其纹理
-    modelData[0] = loadModel("pink_cube.dae", "diffuse.jpg", { 0.0f, 0.0f, 0.0f });
-    modelData[1] = loadModel("pink_cube.dae", "diffuse.jpg", { 0.0f, 2.5f, 0.0f });
-    modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", { 4.0f, 0.0f, 0.0f });
+    modelData[0] = loadModel("luoxuanjiang3.dae", "diffuse.jpg", { -4.5f, 3.2f, 0.0f }, 180, 0, -90);
+    modelData[1] = loadModel("plane2.obj", "plane.jpg", { 0.0f, 2.5f, 0.0f }, 180, 180, 0);
+    //modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", { 4.0f, 0.0f, 0.0f }, 90, 0, 0);
 
     // 加载其他模型...
 
@@ -658,6 +706,7 @@ int main(int argc, char** argv) {
     glutCreateWindow("Lab 1 - Phong/Toon/Cook-Torrance lighting model");
     initOpenGL();
     glutDisplayFunc(display);
+    glutIdleFunc(display);
     glutKeyboardFunc(keypress);
     glutMainLoop();
     return 0;
