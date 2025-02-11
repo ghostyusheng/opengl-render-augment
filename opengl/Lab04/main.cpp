@@ -416,19 +416,28 @@ void main() {
     vec3 normal = normalize(fragNormal);
     vec3 viewDir = normalize(viewPosition - fragPosition);
     vec3 lightDir = normalize(vec3(0.0, 1.0, 1.0));
+    
+    // 漫反射
     float diff = max(dot(normal, lightDir), 0.0);
     
-    // 添加环境光
+    // 高光反射
+    vec3 halfDir = normalize(lightDir + viewDir);
+    float spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
+    vec3 specular = vec3(0.5) * spec; // 50% 的高光
+    
+    // 环境光
     vec3 ambient = vec3(0.2, 0.2, 0.2); // 20% 的环境光
     
+    // 读取材质颜色
     vec3 textureColor = useTexture == 1 ? texture(textureSampler, fragTexcoord).rgb : defaultColor;
     
+    // 反射 & 折射
     vec3 reflectDir = reflect(-viewDir, normal);
     vec3 refractDirR = refract(-viewDir, normal, 1.0 / 1.1);
     vec3 refractDirG = refract(-viewDir, normal, 1.0 / 1.2);
     vec3 refractDirB = refract(-viewDir, normal, 1.0 / 1.3);
     
-    float fresnel = pow(1.0 - dot(viewDir, normal), 3.0) * (1.0 - FresnelRatio) + FresnelRatio;
+    float fresnel = pow(1.0 - dot(viewDir, normal), 5.0) * (1.0 - FresnelRatio) + FresnelRatio;
     
     vec3 finalColor;
     if (currentMode == 0) { // 反射
@@ -437,17 +446,17 @@ void main() {
         if (chromaticAberration) {
             finalColor = vec3(refractDirR.r, refractDirG.g, refractDirB.b);
         } else {
-            finalColor = refractDirG;
+            finalColor = mix(textureColor, vec3(refractDirG), 0.5);
         }
     }
     
-    // 添加环境光到最终颜色
-    finalColor = mix(ambient, finalColor, 0.8);
+    // 组合光照
+    finalColor = finalColor * diff + specular + ambient;
     
-    //finalColor = vec4(finalColor * diff * textureColor, 1.0);
-    fragColor = vec4(finalColor, 1); // 50% 透明
-
+    // 结合材质颜色
+    fragColor = vec4(textureColor * 0.7 + finalColor * 0.3, 1.0);
 }
+
 )";
 
 // 编译单个着色器
@@ -737,11 +746,11 @@ void initOpenGL() {
 
     // 加载模型及其纹理
     modelData[0] = loadModel("luoxuanjiang3.dae", "diffuse.jpg", { -4.5f, 3.2f, 0.0f }, 180, 0, -90);
-    modelData[1] = loadModel("plane2.obj", "plane.jpg", { 0.0f, 2.5f, 0.0f }, 180, 180, 0);
+    modelData[1] = loadModel("plane2.obj", "plane3.jpg", { 0.0f, 2.5f, 0.0f }, 180, 180, 0);
     //modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", { 4.0f, 0.0f, 0.0f }, 90, 0, 0);
 
      // 加载地形数据
-    modelData[8] = loadHeightmap("hmap.png", { 0.0f, 0.0f, 0.0f }, 1.0f, 10.0f, 1.0f);  // Scale Y 用于控制高度
+    //modelData[8] = loadHeightmap("hmap.png", { 0.0f, 0.0f, 0.0f }, 180.0f, 10.0f, 1.0f);  // Scale Y 用于控制高度
 
     initBuffers();
 }
@@ -752,7 +761,7 @@ int main(int argc, char** argv) {
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
     glutInitWindowSize(800, 600);
-    glutCreateWindow("Lab 1 - Phong/Toon/Cook-Torrance lighting model");
+    glutCreateWindow("Lab - plane");
     initOpenGL();
     glutDisplayFunc(display);
     glutIdleFunc(display);
