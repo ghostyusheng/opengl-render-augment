@@ -180,6 +180,54 @@ float modelRotationY = 0.0f;   // 模型绕 Y 轴旋转角度
 
 
 
+ModelData loadHeightmap(const char* heightmapFile, glm::vec3 position, float scaleX, float scaleY, float scaleZ) {
+    ModelData data;
+
+    // 载入高度图
+    int width, height, nrChannels;
+    unsigned char* heightmapData = stbi_load(heightmapFile, &width, &height, &nrChannels, 0);
+    if (!heightmapData) {
+        std::cerr << "Error loading heightmap: " << heightmapFile << std::endl;
+        return data;
+    }
+
+    // 生成地形的顶点数据
+    for (int z = 0; z < height; z++) {
+        for (int x = 0; x < width; x++) {
+            // 获取每个像素的灰度值并映射到高度
+            float pixelHeight = (float)heightmapData[(z * width + x) * nrChannels] / 255.0f * scaleY;  // 归一化后乘以scaleY
+
+            // 生成顶点数据
+            data.vertices.push_back((float)x * scaleX);  // x 坐标
+            data.vertices.push_back(pixelHeight);        // y 坐标（高度）
+            data.vertices.push_back((float)z * scaleZ);  // z 坐标
+
+            // 对应法线（暂时用单位法线，稍后可能需要计算）
+            data.normals.push_back(0.0f);
+            data.normals.push_back(1.0f);
+            data.normals.push_back(0.0f);
+
+            // 默认的纹理坐标（这里可以根据需要进行调整）
+            data.texCoords.push_back((float)x / width);
+            data.texCoords.push_back((float)z / height);
+        }
+    }
+
+    // 计算顶点数量
+    data.pointCount = data.vertices.size() / 3;
+
+    // 设置地形的位置
+    data.position = position;
+
+    // 释放高度图数据
+    stbi_image_free(heightmapData);
+
+    std::cout << "Heightmap loaded: " << heightmapFile << std::endl;
+    std::cout << "Terrain size: " << width << "x" << height << std::endl;
+    std::cout << "Number of vertices: " << data.pointCount << std::endl;
+
+    return data;
+}
 
 // 加载模型函数
 // 加载模型函数
@@ -692,7 +740,8 @@ void initOpenGL() {
     modelData[1] = loadModel("plane2.obj", "plane.jpg", { 0.0f, 2.5f, 0.0f }, 180, 180, 0);
     //modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", { 4.0f, 0.0f, 0.0f }, 90, 0, 0);
 
-    // 加载其他模型...
+     // 加载地形数据
+    modelData[8] = loadHeightmap("hmap.png", { 0.0f, 0.0f, 0.0f }, 1.0f, 10.0f, 1.0f);  // Scale Y 用于控制高度
 
     initBuffers();
 }
