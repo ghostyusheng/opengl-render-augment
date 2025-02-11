@@ -22,6 +22,8 @@ float pitchAngle = 0.0f;  // 俯仰
 float rollAngle = 0.0f;   // 横滚
 float yawAngle = 0.0f;    // 偏航
 float propellerAngle = 0.0f;  // 螺旋桨的旋转角度
+bool bumpMappingEnabled = false;
+
 
 
 
@@ -37,6 +39,7 @@ struct ModelData {
     std::vector<float> normals;    // 法线数据
     std::vector<float> texCoords;  // 纹理坐标数据
     GLuint textureID = 0;          // 纹理 ID
+    GLuint normalMapTexture = 0;
     glm::vec3 position = { 0.0f, 0.0f, 0.0f }; // 空间位置
     size_t pointCount = 0;         // 顶点数量
     glm::mat4 rotationMatrix = glm::mat4(1.0f); // 旋转矩阵，默认是单位矩阵
@@ -231,7 +234,7 @@ ModelData loadHeightmap(const char* heightmapFile, glm::vec3 position, float sca
 
 // 加载模型函数
 // 加载模型函数
-ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm::vec3 position = { 0.0f, 0.0f, 0.0f }, float rotateX = 0.0f, float rotateY = 0.0f, float rotateZ = 0.0f) {
+ModelData loadModel(const char* fileName, const char* textureFile = nullptr, const char* normalMapFile = nullptr, glm::vec3 position = { 0.0f, 0.0f, 0.0f }, float rotateX = 0.0f, float rotateY = 0.0f, float rotateZ = 0.0f) {
     ModelData data;
     const aiScene* scene = aiImportFile(fileName, aiProcess_Triangulate | aiProcess_GenNormals);
     if (!scene) {
@@ -258,75 +261,28 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
         if (texCoord) {
             data.texCoords.push_back(texCoord->x);
             data.texCoords.push_back(texCoord->y);
-
-            // 打印纹理坐标
-            //std::cout << "Vertex " << i << " Texture Coord: (" << texCoord->x << ", " << texCoord->y << ")" << std::endl;
         }
         else {
             data.texCoords.push_back(0.0f); // 默认纹理坐标
             data.texCoords.push_back(0.0f);
-
-            // 打印默认纹理坐标
-            //std::cout << "Vertex " << i << " Texture Coord: (0.0, 0.0)" << std::endl;
         }
     }
 
-    // 检查模型是否有自带纹理
-    bool hasModelTexture = false;
-    int textureWidth = 0, textureHeight = 0;
-    if (scene->mNumMaterials > 0) {
-        aiMaterial* material = scene->mMaterials[0];
-        aiString texturePath;
-        if (material->GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS) {
-            hasModelTexture = true;
-            std::cout << "Found model texture for: " << fileName << std::endl;
-
-            // 加载模型自带纹理
-            std::string directory = fileName;
-            directory = directory.substr(0, directory.find_last_of('/'));
-            std::string fullTexturePath = directory + "/" + texturePath.C_Str();
-
-            glGenTextures(1, &data.textureID);
-            glBindTexture(GL_TEXTURE_2D, data.textureID);
-
-            int nrChannels;
-            unsigned char* dataTexture = stbi_load(fullTexturePath.c_str(), &textureWidth, &textureHeight, &nrChannels, 0);
-            if (dataTexture) {
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, textureWidth, textureHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, dataTexture);
-                glGenerateMipmap(GL_TEXTURE_2D);
-                stbi_image_free(dataTexture);
-                std::cout << "Success to load model texture: " << fullTexturePath
-                    << " (Width: " << textureWidth << ", Height: " << textureHeight << ")" << std::endl;
-            }
-            else {
-                std::cerr << "Failed to load model texture: " << fullTexturePath << std::endl;
-                stbi_image_free(dataTexture);
-            }
-
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        }
-    }
-
-    // 如果模型没有自带纹理，但提供了纹理文件，则加载提供的纹理
-    if (!hasModelTexture && textureFile) {
+    // 加载漫反射纹理（与之前一致）
+    if (textureFile) {
         glGenTextures(1, &data.textureID);
         glBindTexture(GL_TEXTURE_2D, data.textureID);
 
-        int nrChannels;
-        unsigned char* dataTexture = stbi_load(textureFile, &textureWidth, &textureHeight, &nrChannels, 0);
-        if (dataTexture) {
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, textureWidth, textureHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, dataTexture);
+        int textureWidth, textureHeight, nrChannels;
+        unsigned char* textureData = stbi_load(textureFile, &textureWidth, &textureHeight, &nrChannels, 0);
+        if (textureData) {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, textureWidth, textureHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, textureData);
             glGenerateMipmap(GL_TEXTURE_2D);
-            stbi_image_free(dataTexture);
-            std::cout << "Success to load texture file: " << textureFile
-                << " (Width: " << textureWidth << ", Height: " << textureHeight << ")" << std::endl;
+            stbi_image_free(textureData);
         }
         else {
-            std::cerr << "Failed to load texture file: " << textureFile << std::endl;
-            stbi_image_free(dataTexture);
+            std::cerr << "Failed to load texture: " << textureFile << std::endl;
+            stbi_image_free(textureData);
         }
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -335,36 +291,37 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, glm
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     }
 
-    // 如果既没有模型纹理，也没有提供纹理文件，则设置 textureID 为 0，表示使用默认颜色
-    if (!hasModelTexture && !textureFile) {
-        data.textureID = 0; // 使用默认颜色
-    }
+    // 加载法线贴图（如果提供了）
+    if (normalMapFile) {
+        glGenTextures(1, &data.normalMapTexture);
+        glBindTexture(GL_TEXTURE_2D, data.normalMapTexture);
 
-    // 设置模型空间位置
-    data.position = position;
+        int normalMapWidth, normalMapHeight, nrChannels;
+        unsigned char* normalMapData = stbi_load(normalMapFile, &normalMapWidth, &normalMapHeight, &nrChannels, 0);
+        if (normalMapData) {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, normalMapWidth, normalMapHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, normalMapData);
+            glGenerateMipmap(GL_TEXTURE_2D);
+            stbi_image_free(normalMapData);
+        }
+        else {
+            std::cerr << "Failed to load normal map: " << normalMapFile << std::endl;
+            stbi_image_free(normalMapData);
+        }
 
-    // 打印调试信息
-    std::cout << "Model loaded: " << fileName << std::endl;
-    std::cout << " - Number of vertices: " << data.pointCount << std::endl;
-    if (data.textureID) {
-        std::cout << " - Texture loaded: Yes" << std::endl;
-        std::cout << " - Texture dimensions: " << textureWidth << "x" << textureHeight << std::endl;
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     }
-    else {
-        std::cout << " - Texture loaded: No" << std::endl;
-    }
-    std::cout << " - Model position: (" << position.x << ", " << position.y << ", " << position.z << ")" << std::endl;
 
     aiReleaseImport(scene);
 
-    // 设置模型的初始旋转
     glm::mat4 rotation = glm::mat4(1.0f);
     rotation = glm::rotate(rotation, glm::radians(rotateX), glm::vec3(1.0f, 0.0f, 0.0f));
     rotation = glm::rotate(rotation, glm::radians(rotateY), glm::vec3(0.0f, 1.0f, 0.0f));
     rotation = glm::rotate(rotation, glm::radians(rotateZ), glm::vec3(0.0f, 0.0f, 1.0f));
-    data.rotationMatrix = rotation; // 保存旋转矩阵
+    data.rotationMatrix = rotation;
 
-    // 返回模型数据
     return data;
 }
 
@@ -591,6 +548,12 @@ void keypress(unsigned char key, int x, int y) {
         case 'd': rollAngle -= 5.0f; break;   // 横滚向右
         case 'q': yawAngle += 5.0f; break;    // 偏航向左
         case 'e': yawAngle -= 5.0f; break;    // 偏航向右
+
+        case 'b':
+            bumpMappingEnabled = !bumpMappingEnabled;
+            std::cout << "Bump Mapping " << (bumpMappingEnabled ? "Enabled" : "Disabled") << std::endl;
+            break;
+
     }
 
     // 限制 cameraAngleX 的值在 -89 到 89 度之间
@@ -608,6 +571,10 @@ void display() {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     glUseProgram(shaderProgram);
+
+    GLuint bumpMappingLoc = glGetUniformLocation(shaderProgram, "bumpMappingEnabled");
+    glUniform1i(bumpMappingLoc, bumpMappingEnabled);
+
 
     propellerAngle += 1.0f;
 
@@ -745,8 +712,8 @@ void initOpenGL() {
 
 
     // 加载模型及其纹理
-    modelData[0] = loadModel("luoxuanjiang3.dae", "diffuse.jpg", { -4.5f, 3.2f, 0.0f }, 180, 0, -90);
-    modelData[1] = loadModel("plane2.obj", "plane3.jpg", { 0.0f, 2.5f, 0.0f }, 180, 180, 0);
+    modelData[0] = loadModel("luoxuanjiang3.dae", "diffuse.jpg", nullptr, { -4.5f, 3.2f, 0.0f }, 180, 0, -90);
+    modelData[1] = loadModel("plane2.obj", "plane3.jpg", nullptr, { 0.0f, 2.5f, 0.0f }, 180, 180, 0);
     //modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", { 4.0f, 0.0f, 0.0f }, 90, 0, 0);
 
      // 加载地形数据
