@@ -359,7 +359,8 @@ in vec3 fragPosition;
 in vec3 fragNormal;
 in vec2 fragTexcoord;
 
-uniform sampler2D textureSampler;
+uniform sampler2D textureSampler;     // 漫反射纹理
+uniform sampler2D normalMap;          // 法线贴图
 uniform vec3 viewPosition;
 uniform int useTexture;
 uniform vec3 defaultColor;
@@ -370,10 +371,25 @@ uniform int currentMode; // 0: 反射, 1: 折射
 out vec4 fragColor;
 
 void main() {
+    // 初始的法线，若不使用法线贴图，则使用原始的法线
     vec3 normal = normalize(fragNormal);
+
+    // 如果启用了法线贴图，则从法线贴图中采样并计算新的法线
+    if (useTexture == 1) {
+        // 从法线贴图中采样
+        vec3 sampledNormal = texture(normalMap, fragTexcoord).rgb;
+        
+        // 将法线贴图的颜色值从 [0, 1] 转换到 [-1, 1]
+        sampledNormal = normalize(sampledNormal * 2.0 - 1.0);
+        
+        // 使用法线贴图中的法线
+        normal = sampledNormal;
+    }
+
+    // 计算视线方向和光源方向
     vec3 viewDir = normalize(viewPosition - fragPosition);
     vec3 lightDir = normalize(vec3(0.0, 1.0, 1.0));
-    
+
     // 漫反射
     float diff = max(dot(normal, lightDir), 0.0);
     
@@ -385,10 +401,10 @@ void main() {
     // 环境光
     vec3 ambient = vec3(0.2, 0.2, 0.2); // 20% 的环境光
     
-    // 读取材质颜色
+    // 读取漫反射材质颜色
     vec3 textureColor = useTexture == 1 ? texture(textureSampler, fragTexcoord).rgb : defaultColor;
     
-    // 反射 & 折射
+    // 反射与折射计算
     vec3 reflectDir = reflect(-viewDir, normal);
     vec3 refractDirR = refract(-viewDir, normal, 1.0 / 1.1);
     vec3 refractDirG = refract(-viewDir, normal, 1.0 / 1.2);
@@ -407,12 +423,13 @@ void main() {
         }
     }
     
-    // 组合光照
+    // 组合光照（漫反射、环境光、高光）
     finalColor = finalColor * diff + specular + ambient;
     
-    // 结合材质颜色
+    // 结合材质颜色与光照效果
     fragColor = vec4(textureColor * 0.7 + finalColor * 0.3, 1.0);
 }
+
 
 )";
 
@@ -596,8 +613,16 @@ void display() {
 
     // 遍历所有模型并渲染
     for (int i = 0; i < 9; i++) {
+        if (bumpMappingEnabled) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, modelData[i].normalMapTexture);
+            glUniform1i(glGetUniformLocation(shaderProgram, "normalMap"), 1); // 将法线贴图绑定到纹理单元 1
+        }
+
+
         // 设置模型矩阵
         glm::mat4 model = glm::translate(glm::mat4(1.0f), modelData[i].position); // 模型位置
+
 
         // 使用模型的初始旋转矩阵
         model = model * modelData[i].rotationMatrix;
@@ -713,7 +738,7 @@ void initOpenGL() {
 
     // 加载模型及其纹理
     modelData[0] = loadModel("luoxuanjiang3.dae", "diffuse.jpg", nullptr, { -4.5f, 3.2f, 0.0f }, 180, 0, -90);
-    modelData[1] = loadModel("plane2.obj", "plane3.jpg", nullptr, { 0.0f, 2.5f, 0.0f }, 180, 180, 0);
+    modelData[1] = loadModel("plane2.obj", "plane2.jpg", "metal_normal.jpg", {0.0f, 2.5f, 0.0f}, 180, 180, 0);
     //modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", { 4.0f, 0.0f, 0.0f }, 90, 0, 0);
 
      // 加载地形数据
