@@ -734,7 +734,8 @@ void initOpenGL() {
     //modelData[0] = loadModel("luoxuanjiang3.dae", "diffuse.jpg", nullptr, { 0.5f, -3.2f, 10.0f }, 180, 180, -90);
     //modelData[1] = loadModel("plane2.obj", "plane3.jpg", "metal_normal.jpg", {0.0f, 2.5f, 0.0f}, 180, 180, 0);
     modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 0.0f, 0.0f, 0.0f }, 0, 0, 0);
-    modelData[3] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 5.0f, 0.0f, 0.0f }, 0, 0, 0);
+    modelData[3] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 5.0f, 0.0f, -10.0f }, 0, 0, 0);
+    modelData[4] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 10.0f, 0.0f, -20.0f }, 0, 0, 0);
 
      // 加载地形数据
     //modelData[8] = loadHeightmap("hmap.png", { 0.0f, 0.0f, 0.0f }, 180.0f, 10.0f, 1.0f);  // Scale Y 用于控制高度
