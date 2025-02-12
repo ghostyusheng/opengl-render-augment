@@ -592,7 +592,6 @@ void display() {
     GLuint bumpMappingLoc = glGetUniformLocation(shaderProgram, "bumpMappingEnabled");
     glUniform1i(bumpMappingLoc, bumpMappingEnabled);
 
-
     propellerAngle += 1.0f;
 
     // 获取 Shader 中的 Uniform 变量位置
@@ -613,20 +612,17 @@ void display() {
 
     // 遍历所有模型并渲染
     for (int i = 0; i < 9; i++) {
+        // 如果启用 bump mapping，则绑定法线贴图
         if (bumpMappingEnabled) {
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, modelData[i].normalMapTexture);
             glUniform1i(glGetUniformLocation(shaderProgram, "normalMap"), 1); // 将法线贴图绑定到纹理单元 1
         }
 
-
         // 设置模型矩阵
-        glm::mat4 model = glm::translate(glm::mat4(1.0f), modelData[i].position); // 模型位置
-
-
-        // 使用模型的初始旋转矩阵
-        model = model * modelData[i].rotationMatrix;
-        model = glm::rotate(model, modelRotationY, glm::vec3(0.0f, 1.0f, 0.0f)); // Y 轴旋转
+        glm::mat4 model = glm::translate(glm::mat4(1.0f), modelData[i].position); // 设置模型位置
+        model = model * modelData[i].rotationMatrix; // 应用模型的旋转矩阵
+        model = glm::rotate(model, modelRotationY, glm::vec3(0.0f, 1.0f, 0.0f)); // 应用 Y 轴旋转
 
         // 对螺旋桨模型应用旋转（假设螺旋桨是 modelData[0]）
         if (i == 0) {  // 假设螺旋桨在 modelData[0]
@@ -634,13 +630,7 @@ void display() {
             model = model * propellerRotation;  // 将旋转矩阵应用到螺旋桨模型
         }
 
-        // 使用模型的旋转矩阵
-        //model = model * modelData[i].rotationMatrix;
-
-        // 传递给着色器
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-
-        // 俯仰、横滚和偏航
+        // 俯仰、横滚和偏航旋转
         model = glm::rotate(model, glm::radians(pitchAngle), glm::vec3(1.0f, 0.0f, 0.0f));  // 俯仰旋转
         model = glm::rotate(model, glm::radians(rollAngle), glm::vec3(0.0f, 0.0f, 1.0f));   // 横滚旋转
         model = glm::rotate(model, glm::radians(yawAngle), glm::vec3(0.0f, 1.0f, 0.0f));    // 偏航旋转
@@ -666,7 +656,6 @@ void display() {
     }
 
     // 渲染天空盒
-     // 修复后的天空盒渲染部分
     glDepthFunc(GL_LEQUAL);  // 修改深度测试比较方式
     glUseProgram(skyboxShader);
 
@@ -694,13 +683,13 @@ void display() {
     glDepthFunc(GL_LESS);
     glDepthMask(GL_TRUE); // 如果前面修改过需要恢复
 
-
     // 解绑 VAO
     glBindVertexArray(0);
 
     // 交换缓冲区
     glutSwapBuffers();
 }
+
 
 
 
@@ -737,8 +726,8 @@ void initOpenGL() {
 
 
     // 加载模型及其纹理
-    modelData[0] = loadModel("luoxuanjiang3.dae", "diffuse.jpg", nullptr, { -4.5f, 3.2f, 0.0f }, 180, 0, -90);
-    modelData[1] = loadModel("plane2.obj", "plane2.jpg", "metal_normal.jpg", {0.0f, 2.5f, 0.0f}, 180, 180, 0);
+    //modelData[0] = loadModel("luoxuanjiang3.dae", "diffuse.jpg", nullptr, { 0.5f, -3.2f, 10.0f }, 180, 180, -90);
+    modelData[1] = loadModel("plane2.obj", "plane3.jpg", "metal_normal.jpg", {0.0f, 2.5f, 0.0f}, 180, 180, 0);
     //modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", { 4.0f, 0.0f, 0.0f }, 90, 0, 0);
 
      // 加载地形数据
