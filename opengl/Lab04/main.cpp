@@ -234,8 +234,10 @@ ModelData loadHeightmap(const char* heightmapFile, glm::vec3 position, float sca
 
 // 加载模型函数
 // 加载模型函数
+// 加载模型函数
 ModelData loadModel(const char* fileName, const char* textureFile = nullptr, const char* normalMapFile = nullptr, glm::vec3 position = { 0.0f, 0.0f, 0.0f }, float rotateX = 0.0f, float rotateY = 0.0f, float rotateZ = 0.0f) {
     ModelData data;
+    data.position = position;
     const aiScene* scene = aiImportFile(fileName, aiProcess_Triangulate | aiProcess_GenNormals);
     if (!scene) {
         std::cerr << "Error loading model: " << fileName << std::endl;
@@ -268,7 +270,7 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, con
         }
     }
 
-    // 加载漫反射纹理（与之前一致）
+    // 加载漫反射纹理
     if (textureFile) {
         glGenTextures(1, &data.textureID);
         glBindTexture(GL_TEXTURE_2D, data.textureID);
@@ -276,19 +278,24 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, con
         int textureWidth, textureHeight, nrChannels;
         unsigned char* textureData = stbi_load(textureFile, &textureWidth, &textureHeight, &nrChannels, 0);
         if (textureData) {
+            // 上传纹理数据到 GPU
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, textureWidth, textureHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, textureData);
+
+            // **生成 MIP Maps**
             glGenerateMipmap(GL_TEXTURE_2D);
+
+            // 设置纹理参数（包括 MIP Mapping）
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); // 启用 MIP Mapping
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    
             stbi_image_free(textureData);
         }
         else {
             std::cerr << "Failed to load texture: " << textureFile << std::endl;
             stbi_image_free(textureData);
         }
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     }
 
     // 加载法线贴图（如果提供了）
@@ -300,18 +307,17 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, con
         unsigned char* normalMapData = stbi_load(normalMapFile, &normalMapWidth, &normalMapHeight, &nrChannels, 0);
         if (normalMapData) {
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, normalMapWidth, normalMapHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, normalMapData);
-            glGenerateMipmap(GL_TEXTURE_2D);
+            glGenerateMipmap(GL_TEXTURE_2D); // **生成 MIP Maps**
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); // 启用 MIP Mapping
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             stbi_image_free(normalMapData);
         }
         else {
             std::cerr << "Failed to load normal map: " << normalMapFile << std::endl;
             stbi_image_free(normalMapData);
         }
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     }
 
     aiReleaseImport(scene);
@@ -324,7 +330,6 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, con
 
     return data;
 }
-
 
 
 // 顶点着色器源码
@@ -727,8 +732,9 @@ void initOpenGL() {
 
     // 加载模型及其纹理
     //modelData[0] = loadModel("luoxuanjiang3.dae", "diffuse.jpg", nullptr, { 0.5f, -3.2f, 10.0f }, 180, 180, -90);
-    modelData[1] = loadModel("plane2.obj", "plane3.jpg", "metal_normal.jpg", {0.0f, 2.5f, 0.0f}, 180, 180, 0);
-    //modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", { 4.0f, 0.0f, 0.0f }, 90, 0, 0);
+    //modelData[1] = loadModel("plane2.obj", "plane3.jpg", "metal_normal.jpg", {0.0f, 2.5f, 0.0f}, 180, 180, 0);
+    modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 0.0f, 0.0f, 0.0f }, 0, 0, 0);
+    modelData[3] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 5.0f, 0.0f, 0.0f }, 0, 0, 0);
 
      // 加载地形数据
     //modelData[8] = loadHeightmap("hmap.png", { 0.0f, 0.0f, 0.0f }, 180.0f, 10.0f, 1.0f);  // Scale Y 用于控制高度
