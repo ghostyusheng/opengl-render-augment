@@ -736,6 +736,7 @@ void initOpenGL() {
     modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 0.0f, 0.0f, 0.0f }, 0, 0, 0);
     modelData[3] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 5.0f, 0.0f, -10.0f }, 0, 0, 0);
     modelData[4] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 10.0f, 0.0f, -20.0f }, 0, 0, 0);
+    modelData[5] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { -8.0f, 0.0f, -30.0f }, 0, 0, 0);
 
      // 加载地形数据
     //modelData[8] = loadHeightmap("hmap.png", { 0.0f, 0.0f, 0.0f }, 180.0f, 10.0f, 1.0f);  // Scale Y 用于控制高度
