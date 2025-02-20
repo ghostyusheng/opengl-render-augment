@@ -33,6 +33,23 @@ EffectMode currentMode = REFLECTION;  // 当前效果模式
 bool chromaticAberration = false;     // 是否开启色散
 float FresnelRatio = 0.5f;            // 菲涅耳混合系数（0-1）
 
+// 地板顶点数据
+float floorVertices[] = {
+    // 位置       法线         纹理坐标
+    -10.0f,  0.0f, -10.0f,  0, 1, 0,   0.0f,  0.0f,
+     10.0f,  0.0f, -10.0f,  0, 1, 0,   1.0f,  0.0f,
+     10.0f,  0.0f,  10.0f,  0, 1, 0,   1.0f,  1.0f,
+    -10.0f,  0.0f,  10.0f,  0, 1, 0,   0.0f,  1.0f
+};
+
+unsigned int floorIndices[] = {
+    0, 1, 2,
+    0, 2, 3
+};
+
+GLuint floorVAO, floorVBO, floorEBO, floorTexture;
+
+
 // 数据结构
 struct ModelData {
     std::vector<float> vertices;   // 顶点数据
@@ -484,6 +501,68 @@ void initShaders() {
     glDeleteShader(fragmentShader);
 }
 
+void initFloor() {
+    glGenVertexArrays(1, &floorVAO);
+    glGenBuffers(1, &floorVBO);
+    glGenBuffers(1, &floorEBO);
+
+    glBindVertexArray(floorVAO);
+
+    // 顶点缓冲：包含位置、法线和纹理坐标
+    glBindBuffer(GL_ARRAY_BUFFER, floorVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(floorVertices), floorVertices, GL_STATIC_DRAW);
+
+    // 索引缓冲
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, floorEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(floorIndices), floorIndices, GL_STATIC_DRAW);
+
+    // 顶点属性设置：
+    // attribute 0 —— 位置：3个 float，步长为 8 * sizeof(float)，偏移 0
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // attribute 1 —— 法线：3个 float，步长为 8 * sizeof(float)，偏移量为 3 * sizeof(float)
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    // attribute 2 —— 纹理坐标：2个 float，步长为 8 * sizeof(float)，偏移量为 6 * sizeof(float)
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+
+    glBindVertexArray(0);
+
+    // 加载地板纹理
+    glGenTextures(1, &floorTexture);
+    glBindTexture(GL_TEXTURE_2D, floorTexture);
+
+    int width, height, nrChannels;
+    unsigned char* data = stbi_load("floor.jpg", &width, &height, &nrChannels, 0);
+    if (data) {
+        GLenum format;
+        if (nrChannels == 1)
+            format = GL_RED;
+        else if (nrChannels == 3)
+            format = GL_RGB;
+        else if (nrChannels == 4)
+            format = GL_RGBA;
+
+        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
+    else {
+        std::cerr << "Failed to load floor texture" << std::endl;
+    }
+
+    stbi_image_free(data);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+}
+
+
 // 设置视图矩阵和投影矩阵
 glm::mat4 getViewMatrix() {
     // 根据球面坐标计算相机位置
@@ -592,14 +671,10 @@ void display() {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    // 使用主着色器程序
     glUseProgram(shaderProgram);
 
-    GLuint bumpMappingLoc = glGetUniformLocation(shaderProgram, "bumpMappingEnabled");
-    glUniform1i(bumpMappingLoc, bumpMappingEnabled);
-
-    propellerAngle += 1.0f;
-
-    // 获取 Shader 中的 Uniform 变量位置
+    // 获取 Shader 中的 Uniform 变量位置（提前获取，避免重复调用）
     GLuint modelLoc = glGetUniformLocation(shaderProgram, "model");
     GLuint viewLoc = glGetUniformLocation(shaderProgram, "view");
     GLuint projLoc = glGetUniformLocation(shaderProgram, "projection");
@@ -607,6 +682,7 @@ void display() {
     GLuint useTextureLoc = glGetUniformLocation(shaderProgram, "useTexture");
     GLuint defaultColorLoc = glGetUniformLocation(shaderProgram, "defaultColor");
     GLuint textureSamplerLoc = glGetUniformLocation(shaderProgram, "textureSampler");
+    GLuint bumpMappingLoc = glGetUniformLocation(shaderProgram, "bumpMappingEnabled");
 
     // 设置视图矩阵和投影矩阵
     glm::mat4 view = getViewMatrix();
@@ -615,10 +691,33 @@ void display() {
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
     glUniform3f(viewPosLoc, 0.0f, 0.0f, cameraDistance);
 
-    // 遍历所有模型并渲染
+    // 设置是否启用法线贴图（bump mapping）
+    glUniform1i(bumpMappingLoc, bumpMappingEnabled);
+
+    // 渲染地板
+    {
+        // 设置地板的模型矩阵
+        glm::mat4 floorModel = glm::mat4(1.0f); // 地板没有位移或旋转
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(floorModel));
+
+        // 绑定地板纹理并设置
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, floorTexture);
+        glUniform1i(textureSamplerLoc, 0); // 将纹理绑定到纹理单元 0
+
+        // 通知 Shader 使用纹理
+        glUniform1i(useTextureLoc, 1);
+
+        // 绑定地板 VAO 并绘制
+        glBindVertexArray(floorVAO);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+    }
+
+    // 渲染模型
     for (int i = 0; i < 9; i++) {
         // 如果启用 bump mapping，则绑定法线贴图
-        if (bumpMappingEnabled) {
+        if (bumpMappingEnabled && modelData[i].normalMapTexture) {
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, modelData[i].normalMapTexture);
             glUniform1i(glGetUniformLocation(shaderProgram, "normalMap"), 1); // 将法线贴图绑定到纹理单元 1
@@ -640,7 +739,7 @@ void display() {
         model = glm::rotate(model, glm::radians(rollAngle), glm::vec3(0.0f, 0.0f, 1.0f));   // 横滚旋转
         model = glm::rotate(model, glm::radians(yawAngle), glm::vec3(0.0f, 1.0f, 0.0f));    // 偏航旋转
 
-        // 传递给着色器
+        // 传递模型矩阵到着色器
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
         // 判断是否有纹理
@@ -661,35 +760,34 @@ void display() {
     }
 
     // 渲染天空盒
-    glDepthFunc(GL_LEQUAL);  // 修改深度测试比较方式
-    glUseProgram(skyboxShader);
+    {
+        glDepthFunc(GL_LEQUAL);  // 修改深度测试比较方式
+        glUseProgram(skyboxShader);
 
-    // 创建无位移的视图矩阵（关键修复点）
-    glm::mat4 skyboxView = glm::mat4(glm::mat3(view)); // 移除位移分量
+        // 创建无位移的视图矩阵（关键修复点）
+        glm::mat4 skyboxView = glm::mat4(glm::mat3(view)); // 移除位移分量
 
-    // 获取uniform位置（建议提前缓存这些位置）
-    GLint skyboxViewLoc = glGetUniformLocation(skyboxShader, "view");
-    GLint skyboxProjLoc = glGetUniformLocation(skyboxShader, "projection");
+        // 获取 uniform 位置（建议提前缓存这些位置）
+        GLint skyboxViewLoc = glGetUniformLocation(skyboxShader, "view");
+        GLint skyboxProjLoc = glGetUniformLocation(skyboxShader, "projection");
 
-    // 绑定立方体贴图
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
+        // 绑定立方体贴图
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
 
-    // 传递矩阵（使用处理后的视图矩阵）
-    glUniformMatrix4fv(skyboxViewLoc, 1, GL_FALSE, glm::value_ptr(skyboxView));
-    glUniformMatrix4fv(skyboxProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
+        // 传递矩阵（使用处理后的视图矩阵）
+        glUniformMatrix4fv(skyboxViewLoc, 1, GL_FALSE, glm::value_ptr(skyboxView));
+        glUniformMatrix4fv(skyboxProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
-    // 渲染天空盒
-    glBindVertexArray(skyboxVAO);
-    glDrawArrays(GL_TRIANGLES, 0, 36);
-    glBindVertexArray(0);
+        // 渲染天空盒
+        glBindVertexArray(skyboxVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(0);
 
-    // 恢复深度设置
-    glDepthFunc(GL_LESS);
-    glDepthMask(GL_TRUE); // 如果前面修改过需要恢复
-
-    // 解绑 VAO
-    glBindVertexArray(0);
+        // 恢复深度设置
+        glDepthFunc(GL_LESS);
+        glDepthMask(GL_TRUE); // 如果前面修改过需要恢复
+    }
 
     // 交换缓冲区
     glutSwapBuffers();
@@ -706,6 +804,7 @@ void initOpenGL() {
     glEnable(GL_DEPTH_TEST);
     initShaders();
     initSkybox();
+    initFloor(); // 初始化地板
 
     // 创建天空盒着色器程序（替换原有错误代码）
     skyboxShader = glCreateProgram();
@@ -733,13 +832,11 @@ void initOpenGL() {
     // 加载模型及其纹理
     //modelData[0] = loadModel("luoxuanjiang3.dae", "diffuse.jpg", nullptr, { 0.5f, -3.2f, 10.0f }, 180, 180, -90);
     //modelData[1] = loadModel("plane2.obj", "plane3.jpg", "metal_normal.jpg", {0.0f, 2.5f, 0.0f}, 180, 180, 0);
-    modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 0.0f, 0.0f, 0.0f }, 0, 0, 0);
-    modelData[3] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 5.0f, 0.0f, -10.0f }, 0, 0, 0);
-    modelData[4] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 10.0f, 0.0f, -20.0f }, 0, 0, 0);
-    modelData[5] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { -8.0f, 0.0f, -30.0f }, 0, 0, 0);
+    modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 0.0f, 5.0f, 0.0f }, 0, 0, 0);
+    modelData[3] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 5.0f, 5.0f, -10.0f }, 0, 0, 0);
+    modelData[4] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 10.0f, 5.0f, -20.0f }, 0, 0, 0);
+    modelData[5] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { -8.0f, 5.0f, -30.0f }, 0, 0, 0);
 
-     // 加载地形数据
-    //modelData[8] = loadHeightmap("hmap.png", { 0.0f, 0.0f, 0.0f }, 180.0f, 10.0f, 1.0f);  // Scale Y 用于控制高度
 
     initBuffers();
 }
