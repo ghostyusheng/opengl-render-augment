@@ -194,45 +194,7 @@ void drawArm() {
 
     glPopMatrix();
 }
-// ---------------- 绘制手掌和手指 ---------------- //
-void drawHand()
-{
-    glColor3f(0.3f, 0.3f, 0.8f);
-    glutSolidSphere(0.2f, 16, 16); // 手掌为一个小球
 
-    // 绘制 5 根手指
-    for (int i = 0; i < 5; ++i)
-    {
-        glPushMatrix();
-        float angleOffset = -30.0f + i * 15.0f; // 每根手指的初始角度偏移
-        glRotatef(angleOffset, 0.0f, 1.0f, 0.0f);
-        drawFinger(fingerAngles[i][0], fingerAngles[i][1], fingerAngles[i][2]);
-        glPopMatrix();
-    }
-}
-
-// ---------------- 绘制单根手指 ---------------- //
-void drawFinger(float baseAngle, float midAngle, float tipAngle)
-{
-    glColor3f(0.8f, 0.8f, 0.3f);
-
-    // 绘制第一节手指
-    glPushMatrix();
-    glRotatef(baseAngle, 0.0f, 0.0f, 1.0f);
-    glColor3f(0.8f, 0.8f, 0.3f);
-    glutSolidCube(fingerLength);
-    glTranslatef(fingerLength * 2.6f, 0.0f, 0.0f); // 适当调整连接位置
-
-    // 绘制第二节手指
-    glRotatef(midAngle, 0.0f, 0.0f, 1.0f);
-    glutSolidCube(fingerLength * 0.8f);
-    glTranslatef(fingerLength * 2.5f, 0.0f, 0.0f);
-
-    // 绘制第三节手指
-    glRotatef(tipAngle, 0.0f, 0.0f, 1.0f);
-    glutSolidCube(fingerLength * 2.6f);
-    glPopMatrix();
-}
 
 // ---------------- 逆运动学计算 ---------------- //
 void calculateIK(float tx, float ty, float tz)
