@@ -1,854 +1,310 @@
 ﻿#include <GL/glew.h>
 #include <GL/freeglut.h>
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-#include <assimp/cimport.h>
-#include <assimp/scene.h>
-#include <assimp/postprocess.h>
 #include <iostream>
-#include <vector>
 #include <cmath>
+
+// GLM 数学库 (需要提前安装)
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+// --------------- 全局变量区域 --------------- //
 
-// 新增全局变量
-GLuint skyboxShader;  // 天空盒着色器程序
-GLuint skyboxVAO, skyboxVBO;  // 天空盒VAO/VBO
-GLuint cubeMapTexture;
+// 窗口大小
+const int WINDOW_WIDTH = 800;
+const int WINDOW_HEIGHT = 600;
 
-// 用于控制不同旋转的角度
-float pitchAngle = 0.0f;  // 俯仰
-float rollAngle = 0.0f;   // 横滚
-float yawAngle = 0.0f;    // 偏航
-float propellerAngle = 0.0f;  // 螺旋桨的旋转角度
-bool bumpMappingEnabled = false;
+// 机械臂参数
+float link1Length = 2.0f;  // 上臂长度
+float link2Length = 1.5f;  // 下臂长度
 
+// 目标 (末端执行器希望到达的位置)，初始在(2.5, 1.0) 附近
+float targetX = 2.5f;
+float targetY = 1.0f;
 
+// 经过 IK 计算后的关节角度(弧度值)
+float jointAngle1 = 0.0f;  // 上臂与“躯干”连接处关节角
+float jointAngle2 = 0.0f;  // 下臂与上臂连接处关节角
 
+// 摄像机 / 投影相关
+glm::mat4 projMat;    // 投影矩阵
+glm::mat4 viewMat;    // 视图矩阵
 
-// ---------- 新增全局变量 ----------
-enum EffectMode { REFLECTION, REFRACTION };
-EffectMode currentMode = REFLECTION;  // 当前效果模式
-bool chromaticAberration = false;     // 是否开启色散
-float FresnelRatio = 0.5f;            // 菲涅耳混合系数（0-1）
+// 用于演示对目标位置的简单动画
+float timeElapsed = 0.0f;
 
-// 地板顶点数据
-float floorVertices[] = {
-    // 位置       法线         纹理坐标
-    -10.0f,  0.0f, -10.0f,  0, 1, 0,   0.0f,  0.0f,
-     10.0f,  0.0f, -10.0f,  0, 1, 0,   1.0f,  0.0f,
-     10.0f,  0.0f,  10.0f,  0, 1, 0,   1.0f,  1.0f,
-    -10.0f,  0.0f,  10.0f,  0, 1, 0,   0.0f,  1.0f
-};
+// --------------- 函数声明 --------------- //
+void initGL();
+void resize(int w, int h);
+void display();
+void idle();
+void calculateIK(float tx, float ty);
+void drawCoordinateAxes();
+void drawCube(float size);
+void drawArmSystem();
 
-unsigned int floorIndices[] = {
-    0, 1, 2,
-    0, 2, 3
-};
+// ---------------------------------------- //
+//  主函数
+// ---------------------------------------- //
+int main(int argc, char** argv)
+{
+	glutInit(&argc, argv);
+	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
+	glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+	glutCreateWindow("Inverse Kinematics Demo");
+	// 初始化 GLEW
+	GLenum glewInitResult = glewInit();
+	if (glewInitResult != GLEW_OK)
+	{
+		std::cerr << "Error initializing GLEW: "
+			<< glewGetErrorString(glewInitResult) << std::endl;
+		return -1;
+	}
 
-GLuint floorVAO, floorVBO, floorEBO, floorTexture;
+	initGL();
 
+	glutReshapeFunc(resize);
+	glutDisplayFunc(display);
+	glutIdleFunc(idle);
 
-// 数据结构
-struct ModelData {
-    std::vector<float> vertices;   // 顶点数据
-    std::vector<float> normals;    // 法线数据
-    std::vector<float> texCoords;  // 纹理坐标数据
-    GLuint textureID = 0;          // 纹理 ID
-    GLuint normalMapTexture = 0;
-    glm::vec3 position = { 0.0f, 0.0f, 0.0f }; // 空间位置
-    size_t pointCount = 0;         // 顶点数量
-    glm::mat4 rotationMatrix = glm::mat4(1.0f); // 旋转矩阵，默认是单位矩阵
-};
-
-// 立方体顶点数据（NDC坐标，已移除Z分量）
-void initSkybox() {
-    // 1. 创建立方体顶点数据
-    // 立方体顶点数据（NDC坐标，已移除Z分量）
-    float skyboxVertices[] = {
-        // positions          
-        -1.0f,  1.0f, -1.0f,
-        -1.0f, -1.0f, -1.0f,
-         1.0f, -1.0f, -1.0f,
-         1.0f, -1.0f, -1.0f,
-         1.0f,  1.0f, -1.0f,
-        -1.0f,  1.0f, -1.0f,
-
-        -1.0f, -1.0f,  1.0f,
-        -1.0f, -1.0f, -1.0f,
-        -1.0f,  1.0f, -1.0f,
-        -1.0f,  1.0f, -1.0f,
-        -1.0f,  1.0f,  1.0f,
-        -1.0f, -1.0f,  1.0f,
-
-         1.0f, -1.0f, -1.0f,
-         1.0f, -1.0f,  1.0f,
-         1.0f,  1.0f,  1.0f,
-         1.0f,  1.0f,  1.0f,
-         1.0f,  1.0f, -1.0f,
-         1.0f, -1.0f, -1.0f,
-
-        -1.0f, -1.0f,  1.0f,
-        -1.0f,  1.0f,  1.0f,
-         1.0f,  1.0f,  1.0f,
-         1.0f,  1.0f,  1.0f,
-         1.0f, -1.0f,  1.0f,
-        -1.0f, -1.0f,  1.0f,
-
-        -1.0f,  1.0f, -1.0f,
-         1.0f,  1.0f, -1.0f,
-         1.0f,  1.0f,  1.0f,
-         1.0f,  1.0f,  1.0f,
-        -1.0f,  1.0f,  1.0f,
-        -1.0f,  1.0f, -1.0f,
-
-        -1.0f, -1.0f, -1.0f,
-        -1.0f, -1.0f,  1.0f,
-         1.0f, -1.0f, -1.0f,
-         1.0f, -1.0f, -1.0f,
-        -1.0f, -1.0f,  1.0f,
-         1.0f, -1.0f,  1.0f
-    };
-
-
-    // 2. 创建VAO/VBO
-    glGenVertexArrays(1, &skyboxVAO);
-    glGenBuffers(1, &skyboxVBO);
-    glBindVertexArray(skyboxVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, skyboxVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), &skyboxVertices, GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glBindVertexArray(0);
-
-    // 3. 加载立方体贴图纹理
-    std::vector<std::string> faces = {
-        "right.jpg", "left.jpg",
-        "top.jpg", "bottom.jpg",
-        "front.jpg", "back.jpg"
-    };
-
-    glGenTextures(1, &cubeMapTexture);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
-
-    // 加载6个面的图片
-    int width, height, nrChannels;
-    for (unsigned int i = 0; i < faces.size(); i++) {
-        unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
-        if (data) {
-            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
-                0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-            stbi_image_free(data);
-        }
-        else {
-            std::cout << "Cubemap texture failed to load at path: " << faces[i] << std::endl;
-            stbi_image_free(data);
-        }
-    }
-
-    // 设置纹理参数
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+	glutMainLoop();
+	return 0;
 }
 
-
-// 顶点着色器
-const char* skyboxVertexShader = R"(
-#version 330 core
-layout (location = 0) in vec3 aPos;
-
-out vec3 TexCoords;
-
-uniform mat4 view;
-uniform mat4 projection;
-
-void main() {
-    TexCoords = aPos;
-    vec4 pos = projection * view * vec4(aPos, 1.0);
-    gl_Position = pos.xyww; // 使用最大深度值
+// ---------------------------------------- //
+//  OpenGL 设置
+// ---------------------------------------- //
+void initGL()
+{
+	glEnable(GL_DEPTH_TEST);
+	glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+	// 简单设置相机
+	viewMat = glm::lookAt(glm::vec3(0.0f, 5.0f, 8.0f), // 摄像机位置
+		glm::vec3(0.0f, 0.0f, 0.0f), // 观察目标
+		glm::vec3(0.0f, 1.0f, 0.0f)); // 上方向
 }
 
-)";
-
-// 片段着色器
-const char* skyboxFragmentShader = R"(
-#version 330 core
-out vec4 FragColor;
-
-in vec3 TexCoords;
-
-uniform samplerCube skybox;
-
-void main() {
-    FragColor = texture(skybox, TexCoords);
+void resize(int w, int h)
+{
+	glViewport(0, 0, w, h);
+	float aspect = static_cast<float>(w) / static_cast<float>(h);
+	// 简单使用透视投影
+	projMat = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
 }
 
-)";
+// ---------------------------------------- //
+//  主循环：绘制场景
+// ---------------------------------------- //
+void display()
+{
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	// 准备模型-视图-投影矩阵
+	glm::mat4 modelMat = glm::mat4(1.0f); // 单位矩阵
+	glm::mat4 mvMat = viewMat * modelMat;
+	glm::mat4 mvpMat = projMat * mvMat;
 
-GLuint vao[9], vboVertices[9], vboNormals[9], vboTexCoords[9], shaderProgram;
-ModelData modelData[9];
+	// (本示例使用固定管线方式简单绘制，若使用自定义着色器，请在这里传 uniform 等。)
 
-// 控制变量
-float cameraDistance = 10.0f;  // 视角距离
-float cameraAngleX = 0.0f;     // 视角绕 X 轴旋转角度
-float cameraAngleY = 0.0f;     // 视角绕 Y 轴旋转角度
-float modelRotationY = 0.0f;   // 模型绕 Y 轴旋转角度
+	// 1) 画一下坐标轴，方便观察(可注释掉)
+	drawCoordinateAxes();
 
+	// 2) 绘制机械臂系统(包括“躯干”、“上臂”、“下臂”、“末端执行器”)
+	drawArmSystem();
 
-
-ModelData loadHeightmap(const char* heightmapFile, glm::vec3 position, float scaleX, float scaleY, float scaleZ) {
-    ModelData data;
-
-    // 载入高度图
-    int width, height, nrChannels;
-    unsigned char* heightmapData = stbi_load(heightmapFile, &width, &height, &nrChannels, 0);
-    if (!heightmapData) {
-        std::cerr << "Error loading heightmap: " << heightmapFile << std::endl;
-        return data;
-    }
-
-    // 生成地形的顶点数据
-    for (int z = 0; z < height; z++) {
-        for (int x = 0; x < width; x++) {
-            // 获取每个像素的灰度值并映射到高度
-            float pixelHeight = (float)heightmapData[(z * width + x) * nrChannels] / 255.0f * scaleY;  // 归一化后乘以scaleY
-
-            // 生成顶点数据
-            data.vertices.push_back((float)x * scaleX);  // x 坐标
-            data.vertices.push_back(pixelHeight);        // y 坐标（高度）
-            data.vertices.push_back((float)z * scaleZ);  // z 坐标
-
-            // 对应法线（暂时用单位法线，稍后可能需要计算）
-            data.normals.push_back(0.0f);
-            data.normals.push_back(1.0f);
-            data.normals.push_back(0.0f);
-
-            // 默认的纹理坐标（这里可以根据需要进行调整）
-            data.texCoords.push_back((float)x / width);
-            data.texCoords.push_back((float)z / height);
-        }
-    }
-
-    // 计算顶点数量
-    data.pointCount = data.vertices.size() / 3;
-
-    // 设置地形的位置
-    data.position = position;
-
-    // 释放高度图数据
-    stbi_image_free(heightmapData);
-
-    std::cout << "Heightmap loaded: " << heightmapFile << std::endl;
-    std::cout << "Terrain size: " << width << "x" << height << std::endl;
-    std::cout << "Number of vertices: " << data.pointCount << std::endl;
-
-    return data;
+	glutSwapBuffers();
 }
 
-// 加载模型函数
-// 加载模型函数
-// 加载模型函数
-ModelData loadModel(const char* fileName, const char* textureFile = nullptr, const char* normalMapFile = nullptr, glm::vec3 position = { 0.0f, 0.0f, 0.0f }, float rotateX = 0.0f, float rotateY = 0.0f, float rotateZ = 0.0f) {
-    ModelData data;
-    data.position = position;
-    const aiScene* scene = aiImportFile(fileName, aiProcess_Triangulate | aiProcess_GenNormals);
-    if (!scene) {
-        std::cerr << "Error loading model: " << fileName << std::endl;
-        return data;
-    }
+// ---------------------------------------- //
+//  idle 回调：让目标位置简单地随时间运动
+// ---------------------------------------- //
+void idle()
+{
+	timeElapsed += 0.01f; // 时间步，可根据系统刷新率或定时器自行调整
+	// 让 targetX, targetY 做一个小范围的动态演示：
+// 例如在 (2.5, 1.0) 附近画圆，半径 0.5
+	float radius = 0.5f;
+	targetX = 2.5f + radius * std::cos(timeElapsed);
+	targetY = 1.0f + radius * std::sin(timeElapsed);
 
-    const aiMesh* mesh = scene->mMeshes[0];
-    data.pointCount = mesh->mNumVertices;
+	// 计算 IK，更新关节角
+	calculateIK(targetX, targetY);
 
-    std::cout << "Model: " << fileName << " - Number of vertices: " << data.pointCount << std::endl;
-
-    for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
-        const aiVector3D* pos = &mesh->mVertices[i];
-        const aiVector3D* norm = &mesh->mNormals[i];
-        const aiVector3D* texCoord = mesh->mTextureCoords[0] ? &mesh->mTextureCoords[0][i] : nullptr;
-
-        data.vertices.push_back(pos->x);
-        data.vertices.push_back(pos->y);
-        data.vertices.push_back(pos->z);
-        data.normals.push_back(norm->x);
-        data.normals.push_back(norm->y);
-        data.normals.push_back(norm->z);
-        if (texCoord) {
-            data.texCoords.push_back(texCoord->x);
-            data.texCoords.push_back(texCoord->y);
-        }
-        else {
-            data.texCoords.push_back(0.0f); // 默认纹理坐标
-            data.texCoords.push_back(0.0f);
-        }
-    }
-
-    // 加载漫反射纹理
-    if (textureFile) {
-        glGenTextures(1, &data.textureID);
-        glBindTexture(GL_TEXTURE_2D, data.textureID);
-
-        int textureWidth, textureHeight, nrChannels;
-        unsigned char* textureData = stbi_load(textureFile, &textureWidth, &textureHeight, &nrChannels, 0);
-        if (textureData) {
-            // 上传纹理数据到 GPU
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, textureWidth, textureHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, textureData);
-
-            // **生成 MIP Maps**
-            glGenerateMipmap(GL_TEXTURE_2D);
-
-            // 设置纹理参数（包括 MIP Mapping）
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); // 启用 MIP Mapping
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-            stbi_image_free(textureData);
-        }
-        else {
-            std::cerr << "Failed to load texture: " << textureFile << std::endl;
-            stbi_image_free(textureData);
-        }
-    }
-
-    // 加载法线贴图（如果提供了）
-    if (normalMapFile) {
-        glGenTextures(1, &data.normalMapTexture);
-        glBindTexture(GL_TEXTURE_2D, data.normalMapTexture);
-
-        int normalMapWidth, normalMapHeight, nrChannels;
-        unsigned char* normalMapData = stbi_load(normalMapFile, &normalMapWidth, &normalMapHeight, &nrChannels, 0);
-        if (normalMapData) {
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, normalMapWidth, normalMapHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, normalMapData);
-            glGenerateMipmap(GL_TEXTURE_2D); // **生成 MIP Maps**
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); // 启用 MIP Mapping
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            stbi_image_free(normalMapData);
-        }
-        else {
-            std::cerr << "Failed to load normal map: " << normalMapFile << std::endl;
-            stbi_image_free(normalMapData);
-        }
-    }
-
-    aiReleaseImport(scene);
-
-    glm::mat4 rotation = glm::mat4(1.0f);
-    rotation = glm::rotate(rotation, glm::radians(rotateX), glm::vec3(1.0f, 0.0f, 0.0f));
-    rotation = glm::rotate(rotation, glm::radians(rotateY), glm::vec3(0.0f, 1.0f, 0.0f));
-    rotation = glm::rotate(rotation, glm::radians(rotateZ), glm::vec3(0.0f, 0.0f, 1.0f));
-    data.rotationMatrix = rotation;
-
-    return data;
+	// 再次请求绘制
+	glutPostRedisplay();
 }
 
+// ---------------------------------------- //
+//  逆运动学解析解 (2 段连杆, 2D 平面简化)
+//  输入: 目标 (tx, ty)
+//  输出: 更新 jointAngle1, jointAngle2
+// ---------------------------------------- //
+void calculateIK(float tx, float ty)
+{
+	// 1) 计算到目标的距离 d
+	float d = std::sqrt(tx * tx + ty * ty);
+	// 避免目标过近或过远导致无解，这里做下简单限制
+	float eps = 0.0001f;
+	if (d < eps) d = eps; // 避免除以 0
+	if (d > link1Length + link2Length - eps)
+		d = link1Length + link2Length - eps;
 
-// 顶点着色器源码
-const char* vertexShaderSource = R"(
-#version 330 core
-layout(location = 0) in vec3 vertex_position;
-layout(location = 1) in vec3 vertex_normal;
-layout(location = 2) in vec2 vertex_texcoord; // 添加纹理坐标输入
+	// 2) 根据几何关系计算夹角 (参考两连杆 IK 典型公式)
+	//   cos(theta2) = (d^2 - L1^2 - L2^2) / (2 * L1 * L2)
+	float cosAngle2 = (d * d - link1Length * link1Length - link2Length * link2Length)
+		/ (2.0f * link1Length * link2Length);
+	// 由于浮点误差，需限制范围 [-1, 1]
+	if (cosAngle2 > 1.0f) cosAngle2 = 1.0f;
+	if (cosAngle2 < -1.0f) cosAngle2 = -1.0f;
 
-uniform mat4 model;
-uniform mat4 view;
-uniform mat4 projection;
+	float theta2 = std::acos(cosAngle2);
 
-out vec3 fragPosition;
-out vec3 fragNormal;
-out vec2 fragTexcoord; // 传递纹理坐标
+	// 3) 计算 theta1
+	//   theta1 = atan2(ty, tx) - atan2(L2 * sin(theta2), L1 + L2 * cos(theta2))
+	float sinAngle2 = std::sqrt(1.0f - cosAngle2 * cosAngle2);
+	float phi = std::atan2(link2Length * sinAngle2,
+		link1Length + link2Length * cosAngle2);
+	float alpha = std::atan2(ty, tx);
+	float theta1 = alpha - phi;
 
-void main() {
-    fragPosition = vec3(model * vec4(vertex_position, 1.0));
-    fragNormal = mat3(transpose(inverse(model))) * vertex_normal;
-    fragTexcoord = vertex_texcoord; // 传递纹理坐标
-    gl_Position = projection * view * vec4(fragPosition, 1.0);
+	// 更新全局变量
+	jointAngle1 = theta1;  // 上臂关节角
+	jointAngle2 = theta2;  // 下臂关节角
 }
 
-)";
+// ---------------------------------------- //
+//  绘制坐标轴 (仅调试用)
+// ---------------------------------------- //
+void drawCoordinateAxes()
+{
+	glMatrixMode(GL_PROJECTION);
+	glLoadMatrixf(glm::value_ptr(projMat));
+	glMatrixMode(GL_MODELVIEW);
+	glLoadMatrixf(glm::value_ptr(viewMat));
 
-// 片段着色器源码
-// 修改片段着色器
-const char* fragmentShaderSource = R"(
-#version 330 core
-in vec3 fragPosition;
-in vec3 fragNormal;
-in vec2 fragTexcoord;
+	glBegin(GL_LINES);
+	// X 轴 红色
+	glColor3f(1.0f, 0.0f, 0.0f);
+	glVertex3f(0.0f, 0.0f, 0.0f);
+	glVertex3f(5.0f, 0.0f, 0.0f);
 
-uniform sampler2D textureSampler; // 纹理
-uniform vec3 lightDir; // 光源方向
-uniform vec3 viewPosition;
-uniform sampler2D strokeTexture; // 手绘笔触纹理
+	// Y 轴 绿色
+	glColor3f(0.0f, 1.0f, 0.0f);
+	glVertex3f(0.0f, 0.0f, 0.0f);
+	glVertex3f(0.0f, 5.0f, 0.0f);
 
-out vec4 fragColor;
-
-void main() {
-    // 计算光照
-    vec3 normal = normalize(fragNormal);
-    vec3 light = normalize(lightDir);
-    float intensity = max(dot(normal, light), 0.0);
-
-    // 轮廓检测（使用 Sobel 算子）
-    vec3 edgeColor = vec3(0.0);
-    vec2 texOffset = vec2(1.0 / 512.0, 1.0 / 512.0);
-    
-    float sobelX = 0.0;
-    sobelX += texture(textureSampler, fragTexcoord + texOffset * vec2(-1, -1)).r * -1.0;
-    sobelX += texture(textureSampler, fragTexcoord + texOffset * vec2(1, -1)).r * 1.0;
-    sobelX += texture(textureSampler, fragTexcoord + texOffset * vec2(-1, 1)).r * -1.0;
-    sobelX += texture(textureSampler, fragTexcoord + texOffset * vec2(1, 1)).r * 1.0;
-    
-    float sobelY = 0.0;
-    sobelY += texture(textureSampler, fragTexcoord + texOffset * vec2(-1, -1)).r * -1.0;
-    sobelY += texture(textureSampler, fragTexcoord + texOffset * vec2(-1, 1)).r * 1.0;
-    sobelY += texture(textureSampler, fragTexcoord + texOffset * vec2(1, -1)).r * -1.0;
-    sobelY += texture(textureSampler, fragTexcoord + texOffset * vec2(1, 1)).r * 1.0;
-
-    float edge = 1.0 - min(1.0, sqrt(sobelX * sobelX + sobelY * sobelY));
-
-    // 读取手绘笔触纹理
-    vec3 stroke = texture(strokeTexture, fragTexcoord * 5.0).rgb;
-
-    // 组合最终颜色（黑白素描风格）
-    vec3 finalColor = mix(vec3(1.0), stroke, intensity) * edge;
-
-    fragColor = vec4(finalColor, 1.0);
-}
-)";
-
-
-// 编译单个着色器
-GLuint compileShader(GLenum shaderType, const char* shaderSource) {
-    GLuint shader = glCreateShader(shaderType);
-    glShaderSource(shader, 1, &shaderSource, nullptr);
-    glCompileShader(shader);
-
-    // 检查编译错误
-    GLint success;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        char log[512];
-        glGetShaderInfoLog(shader, 512, nullptr, log);
-        std::cerr << "Shader compilation error: " << log << std::endl;
-    }
-
-    return shader;
+	// Z 轴 蓝色
+	glColor3f(0.0f, 0.0f, 1.0f);
+	glVertex3f(0.0f, 0.0f, 0.0f);
+	glVertex3f(0.0f, 0.0f, 5.0f);
+	glEnd();
 }
 
-GLuint strokeTexture;
-void loadStrokeTexture() {
-    glGenTextures(1, &strokeTexture);
-    glBindTexture(GL_TEXTURE_2D, strokeTexture);
+// ---------------------------------------- //
+//  绘制一个方块 (size 指定边长)
+// ---------------------------------------- //
+void drawCube(float size)
+{
+	float half = size * 0.5f;
+	glBegin(GL_QUADS);
+	// 前面
+	glColor3f(0.7f, 0.7f, 0.7f);
+	glVertex3f(-half, -half, half);
+	glVertex3f(half, -half, half);
+	glVertex3f(half, half, half);
+	glVertex3f(-half, half, half);
+	// 后面
+	glVertex3f(-half, -half, -half);
+	glVertex3f(-half, half, -half);
+	glVertex3f(half, half, -half);
+	glVertex3f(half, -half, -half);
 
-    int width, height, nrChannels;
-    unsigned char* data = stbi_load("stroke.jpg", &width, &height, &nrChannels, 0);
-    if (data) {
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
-        stbi_image_free(data);
-    }
-    else {
-        std::cerr << "Failed to load stroke texture" << std::endl;
-    }
+	// 左面
+	glVertex3f(-half, -half, -half);
+	glVertex3f(-half, -half, half);
+	glVertex3f(-half, half, half);
+	glVertex3f(-half, half, -half);
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	// 右面
+	glVertex3f(half, -half, -half);
+	glVertex3f(half, half, -half);
+	glVertex3f(half, half, half);
+	glVertex3f(half, -half, half);
+
+	// 上面
+	glVertex3f(-half, half, half);
+	glVertex3f(half, half, half);
+	glVertex3f(half, half, -half);
+	glVertex3f(-half, half, -half);
+
+	// 下面
+	glVertex3f(-half, -half, -half);
+	glVertex3f(half, -half, -half);
+	glVertex3f(half, -half, half);
+	glVertex3f(-half, -half, half);
+	glEnd();
 }
 
-
-// 初始化着色器程序
-void initShaders() {
-    // 编译顶点着色器
-    GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexShaderSource);
-
-    // 编译片段着色器
-    GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSource);
-
-    // 链接着色器程序
-    shaderProgram = glCreateProgram();
-    glAttachShader(shaderProgram, vertexShader);
-    glAttachShader(shaderProgram, fragmentShader);
-    glLinkProgram(shaderProgram);
-
-    // 检查链接错误
-    GLint success;
-    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-    if (!success) {
-        char log[512];
-        glGetProgramInfoLog(shaderProgram, 512, nullptr, log);
-        std::cerr << "Shader program linking error: " << log << std::endl;
-    }
-
-    // 删除着色器对象
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
-}
-
-void initFloor() {
-    glGenVertexArrays(1, &floorVAO);
-    glGenBuffers(1, &floorVBO);
-    glGenBuffers(1, &floorEBO);
-
-    glBindVertexArray(floorVAO);
-
-    // 顶点缓冲：包含位置、法线和纹理坐标
-    glBindBuffer(GL_ARRAY_BUFFER, floorVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(floorVertices), floorVertices, GL_STATIC_DRAW);
-
-    // 索引缓冲
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, floorEBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(floorIndices), floorIndices, GL_STATIC_DRAW);
-
-    // 顶点属性设置：
-    // attribute 0 —— 位置：3个 float，步长为 8 * sizeof(float)，偏移 0
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    // attribute 1 —— 法线：3个 float，步长为 8 * sizeof(float)，偏移量为 3 * sizeof(float)
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    // attribute 2 —— 纹理坐标：2个 float，步长为 8 * sizeof(float)，偏移量为 6 * sizeof(float)
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-
-    glBindVertexArray(0);
-
-    // 加载地板纹理
-    glGenTextures(1, &floorTexture);
-    glBindTexture(GL_TEXTURE_2D, floorTexture);
-
-    int width, height, nrChannels;
-    unsigned char* data = stbi_load("floor.jpg", &width, &height, &nrChannels, 0);
-    if (data) {
-        GLenum format;
-        if (nrChannels == 1)
-            format = GL_RED;
-        else if (nrChannels == 3)
-            format = GL_RGB;
-        else if (nrChannels == 4)
-            format = GL_RGBA;
-
-        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
-    }
-    else {
-        std::cerr << "Failed to load floor texture" << std::endl;
-    }
-
-    stbi_image_free(data);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-}
-
-
-// 设置视图矩阵和投影矩阵
-glm::mat4 getViewMatrix() {
-    // 根据球面坐标计算相机位置
-    float cameraX = cameraDistance * cos(cameraAngleX) * sin(cameraAngleY);
-    float cameraY = cameraDistance * sin(cameraAngleX);
-    float cameraZ = cameraDistance * cos(cameraAngleX) * cos(cameraAngleY);
-
-    glm::vec3 cameraPos = glm::vec3(cameraX, cameraY, cameraZ);
-    glm::vec3 target = glm::vec3(0.0f, 0.0f, 0.0f); // 目标点
-    glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);     // 世界坐标系的上方向
-
-    return glm::lookAt(cameraPos, target, up);
-}
-
-
-glm::mat4 getProjectionMatrix() {
-    return glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
-}
-
-// 初始化缓冲区
-void initBuffers() {
-    glGenVertexArrays(9, vao);
-    glGenBuffers(9, vboVertices);
-    glGenBuffers(9, vboNormals);
-    glGenBuffers(9, vboTexCoords); // 为纹理坐标生成缓冲区
-
-    for (int i = 0; i < 9; i++) {
-        glBindVertexArray(vao[i]);
-
-        // 顶点位置
-        glBindBuffer(GL_ARRAY_BUFFER, vboVertices[i]);
-        glBufferData(GL_ARRAY_BUFFER, modelData[i].vertices.size() * sizeof(float), modelData[i].vertices.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-        glEnableVertexAttribArray(0);
-
-        // 法线
-        glBindBuffer(GL_ARRAY_BUFFER, vboNormals[i]);
-        glBufferData(GL_ARRAY_BUFFER, modelData[i].normals.size() * sizeof(float), modelData[i].normals.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-        glEnableVertexAttribArray(1);
-
-        // 纹理坐标
-        glBindBuffer(GL_ARRAY_BUFFER, vboTexCoords[i]); // 绑定纹理坐标缓冲区
-        glBufferData(GL_ARRAY_BUFFER, modelData[i].texCoords.size() * sizeof(float), modelData[i].texCoords.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, nullptr); // 注意：纹理坐标是 2D
-        glEnableVertexAttribArray(2);
-
-        glBindVertexArray(0);
-    }
-}
-
-
-// 键盘控制
-void keypress(unsigned char key, int x, int y) {
-    switch (key) {
-    case 'W': cameraDistance -= 2.5f; break; // 拉近视角
-    case 'S': cameraDistance += 2.5f; break; // 拉远视角
-    case 'A': cameraAngleY -= 0.05f; break;  // 左旋视角
-    case 'D': cameraAngleY += 0.05f; break;  // 右旋视角
-    case 'i': cameraAngleX += 0.05f; break;  // 上旋视角
-    case 'k': cameraAngleX -= 0.05f; break;  // 下旋视角
-    case 'Q': modelRotationY -= 0.1f; break; // 模型左旋
-    case 'E': modelRotationY += 0.1f; break; // 模型右旋
-    case 'R':
-        currentMode = (currentMode == REFLECTION) ? REFRACTION : REFLECTION;
-        std::cout << "Mode switched to: " << (currentMode == REFLECTION ? "Reflection" : "Refraction") << std::endl;
-        break;
-    case 'C':
-        chromaticAberration = !chromaticAberration;
-        std::cout << "Chromatic Aberration: " << (chromaticAberration ? "Enabled" : "Disabled") << std::endl;
-        break;
-    case 'F':
-        FresnelRatio = glm::clamp(FresnelRatio + 0.4f, 0.0f, 4.0f);
-        std::cout << "Fresnel Ratio increased: " << FresnelRatio << std::endl;
-        break;
-    case 'V':
-        FresnelRatio = glm::clamp(FresnelRatio - 0.4f, 0.0f, 4.0f);
-        std::cout << "Fresnel Ratio decreased: " << FresnelRatio << std::endl;
-        break;
-
-    case 'w': pitchAngle += 5.0f; break;  // 俯仰向上
-    case 's': pitchAngle -= 5.0f; break;  // 俯仰向下
-    case 'a': rollAngle += 5.0f; break;   // 横滚向左
-    case 'd': rollAngle -= 5.0f; break;   // 横滚向右
-    case 'q': yawAngle += 5.0f; break;    // 偏航向左
-    case 'e': yawAngle -= 5.0f; break;    // 偏航向右
-
-    case 'b':
-        bumpMappingEnabled = !bumpMappingEnabled;
-        std::cout << "Bump Mapping " << (bumpMappingEnabled ? "Enabled" : "Disabled") << std::endl;
-        break;
-
-    }
-
-    // 限制 cameraAngleX 的值在 -89 到 89 度之间
-    if (cameraAngleX > glm::radians(89.0f)) cameraAngleX = glm::radians(89.0f);
-
-    glutPostRedisplay();
-}
-
-
-// 渲染函数
-void display() {
-    // 清除颜色缓冲区和深度缓冲区
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    // 使用主着色器程序
-    glUseProgram(shaderProgram);
-
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, strokeTexture);
-    glUniform1i(glGetUniformLocation(shaderProgram, "strokeTexture"), 1);
-
-
-    // 获取 Shader 中的 Uniform 变量位置（提前获取，避免重复调用）
-    GLuint modelLoc = glGetUniformLocation(shaderProgram, "model");
-    GLuint viewLoc = glGetUniformLocation(shaderProgram, "view");
-    GLuint projLoc = glGetUniformLocation(shaderProgram, "projection");
-    GLuint viewPosLoc = glGetUniformLocation(shaderProgram, "viewPosition");
-    GLuint useTextureLoc = glGetUniformLocation(shaderProgram, "useTexture");
-    GLuint defaultColorLoc = glGetUniformLocation(shaderProgram, "defaultColor");
-    GLuint textureSamplerLoc = glGetUniformLocation(shaderProgram, "textureSampler");
-    GLuint bumpMappingLoc = glGetUniformLocation(shaderProgram, "bumpMappingEnabled");
-
-    // 设置视图矩阵和投影矩阵
-    glm::mat4 view = getViewMatrix();
-    glm::mat4 projection = getProjectionMatrix();
-    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
-    glUniform3f(viewPosLoc, 0.0f, 0.0f, cameraDistance);
-
-    // 设置是否启用法线贴图（bump mapping）
-    glUniform1i(bumpMappingLoc, bumpMappingEnabled);
-
-    // 渲染地板
-    {
-        // 设置地板的模型矩阵
-        glm::mat4 floorModel = glm::mat4(1.0f); // 地板没有位移或旋转
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(floorModel));
-
-        // 绑定地板纹理并设置
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, floorTexture);
-        glUniform1i(textureSamplerLoc, 0); // 将纹理绑定到纹理单元 0
-
-        // 通知 Shader 使用纹理
-        glUniform1i(useTextureLoc, 1);
-
-        // 绑定地板 VAO 并绘制
-        glBindVertexArray(floorVAO);
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-        glBindVertexArray(0);
-    }
-
-    // 渲染模型
-    for (int i = 0; i < 9; i++) {
-        // 如果启用 bump mapping，则绑定法线贴图
-        if (bumpMappingEnabled && modelData[i].normalMapTexture) {
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, modelData[i].normalMapTexture);
-            glUniform1i(glGetUniformLocation(shaderProgram, "normalMap"), 1); // 将法线贴图绑定到纹理单元 1
-        }
-
-        // 设置模型矩阵
-        glm::mat4 model = glm::translate(glm::mat4(1.0f), modelData[i].position); // 设置模型位置
-        model = model * modelData[i].rotationMatrix; // 应用模型的旋转矩阵
-        model = glm::rotate(model, modelRotationY, glm::vec3(0.0f, 1.0f, 0.0f)); // 应用 Y 轴旋转
-
-        // 对螺旋桨模型应用旋转（假设螺旋桨是 modelData[0]）
-        if (i == 0) {  // 假设螺旋桨在 modelData[0]
-            glm::mat4 propellerRotation = glm::rotate(glm::mat4(1.0f), glm::radians(propellerAngle), glm::vec3(0.0f, 1.0f, 0.0f));
-            model = model * propellerRotation;  // 将旋转矩阵应用到螺旋桨模型
-        }
-
-        // 俯仰、横滚和偏航旋转
-        model = glm::rotate(model, glm::radians(pitchAngle), glm::vec3(1.0f, 0.0f, 0.0f));  // 俯仰旋转
-        model = glm::rotate(model, glm::radians(rollAngle), glm::vec3(0.0f, 0.0f, 1.0f));   // 横滚旋转
-        model = glm::rotate(model, glm::radians(yawAngle), glm::vec3(0.0f, 1.0f, 0.0f));    // 偏航旋转
-
-        // 传递模型矩阵到着色器
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-
-        // 判断是否有纹理
-        if (modelData[i].textureID) {
-            glUniform1i(useTextureLoc, 1); // 通知 Shader 使用纹理
-            glActiveTexture(GL_TEXTURE0);  // 激活纹理单元 0
-            glBindTexture(GL_TEXTURE_2D, modelData[i].textureID); // 绑定纹理
-            glUniform1i(textureSamplerLoc, 0); // 将纹理采样器绑定到纹理单元 0
-        }
-        else {
-            glUniform1i(useTextureLoc, 0); // 通知 Shader 不使用纹理
-            glUniform3f(defaultColorLoc, 0.8f, 0.8f, 0.8f); // 设置默认颜色为灰色
-        }
-
-        // 绑定 VAO 并绘制
-        glBindVertexArray(vao[i]);
-        glDrawArrays(GL_TRIANGLES, 0, modelData[i].pointCount);
-    }
-
-    // 渲染天空盒
-    {
-        glDepthFunc(GL_LEQUAL);  // 修改深度测试比较方式
-        glUseProgram(skyboxShader);
-
-        // 创建无位移的视图矩阵（关键修复点）
-        glm::mat4 skyboxView = glm::mat4(glm::mat3(view)); // 移除位移分量
-
-        // 获取 uniform 位置（建议提前缓存这些位置）
-        GLint skyboxViewLoc = glGetUniformLocation(skyboxShader, "view");
-        GLint skyboxProjLoc = glGetUniformLocation(skyboxShader, "projection");
-
-        // 绑定立方体贴图
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapTexture);
-
-        // 传递矩阵（使用处理后的视图矩阵）
-        glUniformMatrix4fv(skyboxViewLoc, 1, GL_FALSE, glm::value_ptr(skyboxView));
-        glUniformMatrix4fv(skyboxProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
-
-        // 渲染天空盒
-        glBindVertexArray(skyboxVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
-        glBindVertexArray(0);
-
-        // 恢复深度设置
-        glDepthFunc(GL_LESS);
-        glDepthMask(GL_TRUE); // 如果前面修改过需要恢复
-    }
-
-    // 交换缓冲区
-    glutSwapBuffers();
-}
-
-
-
-
-
-
-// 初始化 OpenGL
-void initOpenGL() {
-    glewInit();
-    glEnable(GL_DEPTH_TEST);
-    initShaders();
-    initSkybox();
-    initFloor(); // 初始化地板
-    loadStrokeTexture();
-
-    // 创建天空盒着色器程序（替换原有错误代码）
-    skyboxShader = glCreateProgram();
-    GLuint vs = compileShader(GL_VERTEX_SHADER, skyboxVertexShader);
-    GLuint fs = compileShader(GL_FRAGMENT_SHADER, skyboxFragmentShader);
-    glAttachShader(skyboxShader, vs);
-    glAttachShader(skyboxShader, fs);
-    glLinkProgram(skyboxShader);
-
-    // 检查链接错误
-    GLint success;
-    glGetProgramiv(skyboxShader, GL_LINK_STATUS, &success);
-    if (!success) {
-        char infoLog[512];
-        glGetProgramInfoLog(skyboxShader, 512, NULL, infoLog);
-        std::cerr << "SKYBOX SHADER LINK ERROR: " << infoLog << std::endl;
-    }
-
-    // 清理着色器对象
-    glDeleteShader(vs);
-    glDeleteShader(fs);
-
-
-
-    // 加载模型及其纹理
-    //modelData[0] = loadModel("luoxuanjiang3.dae", "diffuse.jpg", nullptr, { 0.5f, -3.2f, 10.0f }, 180, 180, -90);
-    //modelData[1] = loadModel("plane2.obj", "plane3.jpg", "metal_normal.jpg", {0.0f, 2.5f, 0.0f}, 180, 180, 0);
-    modelData[2] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 0.0f, 5.0f, 0.0f }, 0, 0, 0);
-    modelData[3] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 5.0f, 5.0f, -10.0f }, 0, 0, 0);
-    modelData[4] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { 10.0f, 5.0f, -20.0f }, 0, 0, 0);
-    modelData[5] = loadModel("pink_cube.dae", "diffuse.jpg", nullptr, { -8.0f, 5.0f, -30.0f }, 0, 0, 0);
-
-
-    initBuffers();
-}
-
-
-
-int main(int argc, char** argv) {
-    glutInit(&argc, argv);
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
-    glutInitWindowSize(800, 600);
-    glutCreateWindow("Lab - plane");
-    initOpenGL();
-    glutDisplayFunc(display);
-    glutIdleFunc(display);
-    glutKeyboardFunc(keypress);
-    glutMainLoop();
-    return 0;
+// ---------------------------------------- //
+//  绘制机械臂系统
+//  包括 “躯干 + 上臂 + 下臂 + 末端执行器”
+// ---------------------------------------- //
+void drawArmSystem()
+{
+	// 切换矩阵模式并设置好投影/视图
+	glMatrixMode(GL_PROJECTION);
+	glLoadMatrixf(glm::value_ptr(projMat));
+	glMatrixMode(GL_MODELVIEW);
+	// 基于 viewMat 做后续模型变换
+	glm::mat4 modelMat = viewMat;
+
+	// 1) 绘制躯干 (此处用一个竖直放置的方块表示)
+	{
+		glm::mat4 torsoMat = glm::translate(modelMat, glm::vec3(0.0f, 0.0f, 0.0f));
+		torsoMat = glm::scale(torsoMat, glm::vec3(1.0f, 2.0f, 0.5f)); // 高一点，作为“躯干”
+		glLoadMatrixf(glm::value_ptr(torsoMat));
+		drawCube(1.0f);
+	}
+
+	// 2) 绘制上臂: 基点(0,0,0)，此处简化假设关节在躯干顶部附近
+	{
+		glm::mat4 upperArmMat = glm::translate(modelMat, glm::vec3(0.0f, 1.0f, 0.0f));
+		// 绕 Z 轴 或 Y 轴旋转都视需求而定，这里假设关节旋转轴垂直屏幕(简单 2D 平面)
+		upperArmMat = glm::rotate(upperArmMat, jointAngle1, glm::vec3(0.0f, 0.0f, 1.0f));
+		// 再把方块拉伸成“上臂”
+		upperArmMat = glm::scale(upperArmMat, glm::vec3(link1Length, 0.3f, 0.3f));
+
+		glLoadMatrixf(glm::value_ptr(upperArmMat));
+		drawCube(1.0f);
+	}
+
+	// 3) 绘制下臂: 基于上臂末端
+	{
+		// 先平移到上臂末端 (上臂长度 link1Length)
+		glm::mat4 lowerArmMat = glm::translate(modelMat, glm::vec3(0.0f, 1.0f, 0.0f));
+		lowerArmMat = glm::rotate(lowerArmMat, jointAngle1, glm::vec3(0.0f, 0.0f, 1.0f));
+		lowerArmMat = glm::translate(lowerArmMat, glm::vec3(link1Length, 0.0f, 0.0f));
+		// 再对下臂进行自身旋转
+		lowerArmMat = glm::rotate(lowerArmMat, jointAngle2, glm::vec3(0.0f, 0.0f, 1.0f));
+		// 拉伸成“下臂”
+		lowerArmMat = glm::scale(lowerArmMat, glm::vec3(link2Length, 0.2f, 0.2f));
+
+		glLoadMatrixf(glm::value_ptr(lowerArmMat));
+		drawCube(1.0f);
+	}
+
+	// 4) 绘制末端执行器(小球或小方块)
+	{
+		// 计算末端在下臂末端的位置
+		glm::mat4 endEffectorMat = glm::translate(modelMat, glm::vec3(0.0f, 1.0f, 0.0f));
+		endEffectorMat = glm::rotate(endEffectorMat, jointAngle1, glm::vec3(0.0f, 0.0f, 1.0f));
+		endEffectorMat = glm::translate(endEffectorMat, glm::vec3(link1Length, 0.0f, 0.0f));
+		endEffectorMat = glm::rotate(endEffectorMat, jointAngle2, glm::vec3(0.0f, 0.0f, 1.0f));
+		endEffectorMat = glm::translate(endEffectorMat, glm::vec3(link2Length, 0.0f, 0.0f));
+		// 末端稍微放大一点点
+		endEffectorMat = glm::scale(endEffectorMat, glm::vec3(0.2f));
+
+		glLoadMatrixf(glm::value_ptr(endEffectorMat));
+		// 用方块代替小球
+		glColor3f(1.0f, 0.0f, 0.0f);
+		drawCube(1.0f);
+	}
 }
