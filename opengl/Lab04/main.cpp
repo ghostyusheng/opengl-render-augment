@@ -306,7 +306,7 @@ ModelData loadModel(const char* fileName, const char* textureFile = nullptr, con
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); // 启用 MIP Mapping
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    
+
             stbi_image_free(textureData);
         }
         else {
@@ -381,79 +381,47 @@ in vec3 fragPosition;
 in vec3 fragNormal;
 in vec2 fragTexcoord;
 
-uniform sampler2D textureSampler;     // 漫反射纹理
-uniform sampler2D normalMap;          // 法线贴图
+uniform sampler2D textureSampler; // 纹理
+uniform vec3 lightDir; // 光源方向
 uniform vec3 viewPosition;
-uniform int useTexture;
-uniform vec3 defaultColor;
-uniform bool chromaticAberration;
-uniform float FresnelRatio;
-uniform int currentMode; // 0: 反射, 1: 折射
+uniform sampler2D strokeTexture; // 手绘笔触纹理
 
 out vec4 fragColor;
 
 void main() {
-    // 初始的法线，若不使用法线贴图，则使用原始的法线
+    // 计算光照
     vec3 normal = normalize(fragNormal);
+    vec3 light = normalize(lightDir);
+    float intensity = max(dot(normal, light), 0.0);
 
-    // 如果启用了法线贴图，则从法线贴图中采样并计算新的法线
-    if (useTexture == 1) {
-        // 从法线贴图中采样
-        vec3 sampledNormal = texture(normalMap, fragTexcoord).rgb;
-        
-        // 将法线贴图的颜色值从 [0, 1] 转换到 [-1, 1]
-        sampledNormal = normalize(sampledNormal * 2.0 - 1.0);
-        
-        // 使用法线贴图中的法线
-        normal = sampledNormal;
-    }
+    // 轮廓检测（使用 Sobel 算子）
+    vec3 edgeColor = vec3(0.0);
+    vec2 texOffset = vec2(1.0 / 512.0, 1.0 / 512.0);
+    
+    float sobelX = 0.0;
+    sobelX += texture(textureSampler, fragTexcoord + texOffset * vec2(-1, -1)).r * -1.0;
+    sobelX += texture(textureSampler, fragTexcoord + texOffset * vec2(1, -1)).r * 1.0;
+    sobelX += texture(textureSampler, fragTexcoord + texOffset * vec2(-1, 1)).r * -1.0;
+    sobelX += texture(textureSampler, fragTexcoord + texOffset * vec2(1, 1)).r * 1.0;
+    
+    float sobelY = 0.0;
+    sobelY += texture(textureSampler, fragTexcoord + texOffset * vec2(-1, -1)).r * -1.0;
+    sobelY += texture(textureSampler, fragTexcoord + texOffset * vec2(-1, 1)).r * 1.0;
+    sobelY += texture(textureSampler, fragTexcoord + texOffset * vec2(1, -1)).r * -1.0;
+    sobelY += texture(textureSampler, fragTexcoord + texOffset * vec2(1, 1)).r * 1.0;
 
-    // 计算视线方向和光源方向
-    vec3 viewDir = normalize(viewPosition - fragPosition);
-    vec3 lightDir = normalize(vec3(0.0, 1.0, 1.0));
+    float edge = 1.0 - min(1.0, sqrt(sobelX * sobelX + sobelY * sobelY));
 
-    // 漫反射
-    float diff = max(dot(normal, lightDir), 0.0);
-    
-    // 高光反射
-    vec3 halfDir = normalize(lightDir + viewDir);
-    float spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
-    vec3 specular = vec3(0.5) * spec; // 50% 的高光
-    
-    // 环境光
-    vec3 ambient = vec3(0.2, 0.2, 0.2); // 20% 的环境光
-    
-    // 读取漫反射材质颜色
-    vec3 textureColor = useTexture == 1 ? texture(textureSampler, fragTexcoord).rgb : defaultColor;
-    
-    // 反射与折射计算
-    vec3 reflectDir = reflect(-viewDir, normal);
-    vec3 refractDirR = refract(-viewDir, normal, 1.0 / 1.1);
-    vec3 refractDirG = refract(-viewDir, normal, 1.0 / 1.2);
-    vec3 refractDirB = refract(-viewDir, normal, 1.0 / 1.3);
-    
-    float fresnel = pow(1.0 - dot(viewDir, normal), 5.0) * (1.0 - FresnelRatio) + FresnelRatio;
-    
-    vec3 finalColor;
-    if (currentMode == 0) { // 反射
-        finalColor = reflectDir * fresnel;
-    } else { // 折射
-        if (chromaticAberration) {
-            finalColor = vec3(refractDirR.r, refractDirG.g, refractDirB.b);
-        } else {
-            finalColor = mix(textureColor, vec3(refractDirG), 0.5);
-        }
-    }
-    
-    // 组合光照（漫反射、环境光、高光）
-    finalColor = finalColor * diff + specular + ambient;
-    
-    // 结合材质颜色与光照效果
-    fragColor = vec4(textureColor * 0.7 + finalColor * 0.3, 1.0);
+    // 读取手绘笔触纹理
+    vec3 stroke = texture(strokeTexture, fragTexcoord * 5.0).rgb;
+
+    // 组合最终颜色（黑白素描风格）
+    vec3 finalColor = mix(vec3(1.0), stroke, intensity) * edge;
+
+    fragColor = vec4(finalColor, 1.0);
 }
-
-
 )";
+
 
 // 编译单个着色器
 GLuint compileShader(GLenum shaderType, const char* shaderSource) {
@@ -472,6 +440,29 @@ GLuint compileShader(GLenum shaderType, const char* shaderSource) {
 
     return shader;
 }
+
+GLuint strokeTexture;
+void loadStrokeTexture() {
+    glGenTextures(1, &strokeTexture);
+    glBindTexture(GL_TEXTURE_2D, strokeTexture);
+
+    int width, height, nrChannels;
+    unsigned char* data = stbi_load("stroke.jpg", &width, &height, &nrChannels, 0);
+    if (data) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        stbi_image_free(data);
+    }
+    else {
+        std::cerr << "Failed to load stroke texture" << std::endl;
+    }
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+}
+
 
 // 初始化着色器程序
 void initShaders() {
@@ -643,17 +634,17 @@ void keypress(unsigned char key, int x, int y) {
         std::cout << "Fresnel Ratio decreased: " << FresnelRatio << std::endl;
         break;
 
-        case 'w': pitchAngle += 5.0f; break;  // 俯仰向上
-        case 's': pitchAngle -= 5.0f; break;  // 俯仰向下
-        case 'a': rollAngle += 5.0f; break;   // 横滚向左
-        case 'd': rollAngle -= 5.0f; break;   // 横滚向右
-        case 'q': yawAngle += 5.0f; break;    // 偏航向左
-        case 'e': yawAngle -= 5.0f; break;    // 偏航向右
+    case 'w': pitchAngle += 5.0f; break;  // 俯仰向上
+    case 's': pitchAngle -= 5.0f; break;  // 俯仰向下
+    case 'a': rollAngle += 5.0f; break;   // 横滚向左
+    case 'd': rollAngle -= 5.0f; break;   // 横滚向右
+    case 'q': yawAngle += 5.0f; break;    // 偏航向左
+    case 'e': yawAngle -= 5.0f; break;    // 偏航向右
 
-        case 'b':
-            bumpMappingEnabled = !bumpMappingEnabled;
-            std::cout << "Bump Mapping " << (bumpMappingEnabled ? "Enabled" : "Disabled") << std::endl;
-            break;
+    case 'b':
+        bumpMappingEnabled = !bumpMappingEnabled;
+        std::cout << "Bump Mapping " << (bumpMappingEnabled ? "Enabled" : "Disabled") << std::endl;
+        break;
 
     }
 
@@ -673,6 +664,11 @@ void display() {
 
     // 使用主着色器程序
     glUseProgram(shaderProgram);
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, strokeTexture);
+    glUniform1i(glGetUniformLocation(shaderProgram, "strokeTexture"), 1);
+
 
     // 获取 Shader 中的 Uniform 变量位置（提前获取，避免重复调用）
     GLuint modelLoc = glGetUniformLocation(shaderProgram, "model");
@@ -805,6 +801,7 @@ void initOpenGL() {
     initShaders();
     initSkybox();
     initFloor(); // 初始化地板
+    loadStrokeTexture();
 
     // 创建天空盒着色器程序（替换原有错误代码）
     skyboxShader = glCreateProgram();
