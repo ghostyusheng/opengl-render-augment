@@ -7,6 +7,14 @@
 #include <cmath>
 #include <vector>
 
+float shoulderX = 0.0f, shoulderY = 0.0f, shoulderZ = 0.0f; // 肩膀位置
+float shoulderAngle = 45.0f; // 肩部旋转角度
+float elbowAngle = 30.0f;    // 肘部旋转角度
+
+float fingerBaseAngle[5] = { 10, 15, 10, 15, 10 }; // 手指第一关节旋转角
+float fingerMidAngle[5] = { 10, 15, 10, 15, 10 };  // 手指第二关节旋转角
+float fingerTipAngle[5] = { 5, 10, 5, 10, 5 };     // 手指第三关节旋转角
+
 
 // 摄像机参数
 float cameraAngleX = 45.0f; // 水平方向旋转角度
@@ -18,8 +26,6 @@ float upperArmLength = 2.0f; // 上臂长度
 float lowerArmLength = 2.0f; // 下臂长度
 float fingerLength = 0.5f;   // 每节手指长度
 
-float shoulderAngle = 45.0f; // 肩关节角度
-float elbowAngle = 45.0f;    // 肘关节角度
 
 float fingerAngles[5][3] = { {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} }; // 每根手指的三个关节角度
 
@@ -124,47 +130,59 @@ void resize(int w, int h)
 
 // ---------------- 绘制机械臂 ---------------- //
 // ---------------- 绘制机械臂 ---------------- //
-void drawArm()
-{
+void drawArm() {
+    GLUquadric* quad = gluNewQuadric();
+
+    // **肩部**
     glPushMatrix();
+    glRotatef(shoulderAngle, 0.0f, 0.0f, 1.0f); // 肩部旋转
 
-    // 调整躯干的方向（初始化时）
-    glRotatef(90.0f, 0.0f, 0.0f, 1.0f); // 例如，让躯干绕 X 轴旋转 90 度
-    // 如果需要绕其他轴旋转，可以调整参数：
-    // glRotatef(angle, x, y, z);
+    // **上臂**
+    glPushMatrix();
+    glRotatef(90, 0.0f, 1.0f, 0.0f);
+    gluCylinder(quad, 0.2f, 0.2f, upperArmLength, 16, 16);
+    glPopMatrix();
 
-    // 绘制圆柱体躯干
-    glColor3f(0.5f, 0.5f, 0.5f); // 躯干颜色
-    GLUquadric* quadric = gluNewQuadric();
-    gluCylinder(quadric, 0.3f, 0.3f, 2.0f, 32, 32); // 圆柱体：底半径0.3，顶半径0.3，高度2.0
-
-    // 平移到躯干顶部，开始绘制上臂
-    glTranslatef(0.0f, 0.0f, 2.0f);
-
-    // 绘制上臂
-    glColor3f(0.8f, 0.3f, 0.3f);
-    glRotatef(shoulderAngle, 0.0f, 0.0f, 1.0f);
-    glBegin(GL_LINES);
-    glVertex3f(0.0f, 0.0f, 0.0f);
-    glVertex3f(upperArmLength, 0.0f, 0.0f);
-    glEnd();
+    // **肘部**
     glTranslatef(upperArmLength, 0.0f, 0.0f);
-
-    // 绘制下臂
-    glColor3f(0.3f, 0.8f, 0.3f);
     glRotatef(elbowAngle, 0.0f, 0.0f, 1.0f);
-    glBegin(GL_LINES);
-    glVertex3f(0.0f, 0.0f, 0.0f);
-    glVertex3f(lowerArmLength, 0.0f, 0.0f);
-    glEnd();
-    glTranslatef(lowerArmLength, 0.0f, 0.0f);
 
-    // 绘制手掌
-    drawHand();
+    // **前臂**
+    glPushMatrix();
+    glRotatef(90, 0.0f, 1.0f, 0.0f);
+    gluCylinder(quad, 0.15f, 0.15f, lowerArmLength, 16, 16);
+    glPopMatrix();
+
+    // **手掌**
+    glTranslatef(lowerArmLength, 0.0f, 0.0f);
+    glPushMatrix();
+    glColor3f(0.8f, 0.8f, 0.3f);
+    glutSolidCube(0.4f);
+    glPopMatrix();
+
+    // **绘制爪子（线条方式）**
+    glColor3f(1.0f, 0.0f, 0.0f);
+    glBegin(GL_LINES);
+    for (int i = 0; i < 5; i++) {
+        float x = 0.1f * (i - 2);
+        float y = 0.2f;
+
+        // 第一节
+        glVertex3f(x, y, 0.0f);
+        glVertex3f(x + 0.2f * cos(fingerBaseAngle[i] * 3.14 / 180.0f),
+            y + 0.2f * sin(fingerBaseAngle[i] * 3.14 / 180.0f), 0.0f);
+
+        // 第二节
+        float x2 = x + 0.2f * cos(fingerBaseAngle[i] * 3.14 / 180.0f);
+        float y2 = y + 0.2f * sin(fingerBaseAngle[i] * 3.14 / 180.0f);
+        glVertex3f(x2, y2, 0.0f);
+        glVertex3f(x2 + 0.15f * cos(fingerBaseAngle[i] * 3.14 / 180.0f),
+            y2 + 0.15f * sin(fingerBaseAngle[i] * 3.14 / 180.0f), 0.0f);
+    }
+    glEnd();
 
     glPopMatrix();
 }
-
 
 // ---------------- 绘制手掌和手指 ---------------- //
 void drawHand()
@@ -188,28 +206,22 @@ void drawFinger(float baseAngle, float midAngle, float tipAngle)
 {
     glColor3f(0.8f, 0.8f, 0.3f);
 
-    // 绘制第一节
+    // 绘制第一节手指
+    glPushMatrix();
     glRotatef(baseAngle, 0.0f, 0.0f, 1.0f);
-    glBegin(GL_LINES);
-    glVertex3f(0.0f, 0.0f, 0.0f);
-    glVertex3f(fingerLength, 0.0f, 0.0f);
-    glEnd();
-    glTranslatef(fingerLength, 0.0f, 0.0f);
+    glColor3f(0.8f, 0.8f, 0.3f);
+    glutSolidCube(fingerLength);
+    glTranslatef(fingerLength * 2.6f, 0.0f, 0.0f); // 适当调整连接位置
 
-    // 绘制第二节
+    // 绘制第二节手指
     glRotatef(midAngle, 0.0f, 0.0f, 1.0f);
-    glBegin(GL_LINES);
-    glVertex3f(0.0f, 0.0f, 0.0f);
-    glVertex3f(fingerLength, 0.0f, 0.0f);
-    glEnd();
-    glTranslatef(fingerLength, 0.0f, 0.0f);
+    glutSolidCube(fingerLength * 0.8f);
+    glTranslatef(fingerLength * 2.5f, 0.0f, 0.0f);
 
-    // 绘制第三节
+    // 绘制第三节手指
     glRotatef(tipAngle, 0.0f, 0.0f, 1.0f);
-    glBegin(GL_LINES);
-    glVertex3f(0.0f, 0.0f, 0.0f);
-    glVertex3f(fingerLength, 0.0f, 0.0f);
-    glEnd();
+    glutSolidCube(fingerLength * 2.6f);
+    glPopMatrix();
 }
 
 // ---------------- 逆运动学计算 ---------------- //
