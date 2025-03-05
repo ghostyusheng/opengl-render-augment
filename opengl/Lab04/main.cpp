@@ -175,20 +175,25 @@ void drawArm() {
     glColor3f(1.0f, 0.0f, 0.0f);
     glBegin(GL_LINES);
     for (int i = 0; i < 5; i++) {
+        // 原来的 x、y 坐标
         float x = 0.1f * (i - 2);
         float y = 0.2f;
-
+        // 新增：根据 i 计算 z 值。这样每个爪子的 z 坐标都不相同
+        float z = 0.1f * (i - 2);  // 例如：当 i=0,z=-0.2; i=2,z=0; i=4,z=0.2
         // 第一节（长度改为 1.3f）
-        glVertex3f(x, y, 0.0f);
-        glVertex3f(x + 1.3f * cos(fingerBaseAngle[i] * 3.14 / 180.0f),
-            y + 1.3f * sin(fingerBaseAngle[i] * 3.14 / 180.0f), 0.0f);
+        glVertex3f(x, y, z);
+        glVertex3f(x + 1.3f * cos(fingerBaseAngle[i] * 3.14f / 180.0f),
+            y + 1.3f * sin(fingerBaseAngle[i] * 3.14f / 180.0f),
+            z);  // 同样使用该爪子的 z 坐标
 
         // 第二节（长度改为 1.2f）
-        float x2 = x + 0.3f * cos(fingerBaseAngle[i] * 3.14 / 180.0f);
-        float y2 = y + 0.3f * sin(fingerBaseAngle[i] * 3.14 / 180.0f);
-        glVertex3f(x2, y2, 0.0f);
-        glVertex3f(x2 + 1.2f * cos(fingerBaseAngle[i] * 3.14 / 180.0f),
-            y2 + 1.2f * sin(fingerBaseAngle[i] * 3.14 / 180.0f), 0.0f);
+        float x2 = x + 0.3f * cos(fingerBaseAngle[i] * 3.14f / 180.0f);
+        float y2 = y + 0.3f * sin(fingerBaseAngle[i] * 3.14f / 180.0f);
+        // 第二节的起始点依然使用相同的 z 值
+        glVertex3f(x2, y2, z);
+        glVertex3f(x2 + 1.2f * cos(fingerBaseAngle[i] * 3.14f / 180.0f),
+            y2 + 1.2f * sin(fingerBaseAngle[i] * 3.14f / 180.0f),
+            z);
     }
     glEnd();
 
