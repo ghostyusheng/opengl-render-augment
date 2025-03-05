@@ -1,348 +1,205 @@
-﻿/* 3D 机械臂逆运动学演示代码 */
-#include <GL/glew.h>
+﻿#include <GL/glew.h>
 #include <GL/freeglut.h>
-#include <iostream>
 #include <cmath>
+#include <vector>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
-// GLM 数学库
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
 
 // ---------------- 全局变量 ---------------- //
-// // 摄像机控制相关变量
-float cameraAngleX = 0.0f; // 绕X轴旋转角度
-float cameraAngleY = 0.0f; // 绕Y轴旋转角度
-float cameraDistance = 10.0f; // 摄像机距离原点的距离
+float upperArmLength = 2.0f; // 上臂长度
+float lowerArmLength = 2.0f; // 下臂长度
+float fingerLength = 0.5f;   // 每节手指长度
 
-bool isDragging = false; // 鼠标是否正在拖拽
-int lastMouseX, lastMouseY; // 上一次鼠标的位置
+float shoulderAngle = 45.0f; // 肩关节角度
+float elbowAngle = 45.0f;    // 肘关节角度
 
-// 
-// 窗口大小
-const int WINDOW_WIDTH = 800;
-const int WINDOW_HEIGHT = 600;
+float fingerAngles[5][2] = { {0.0f, 0.0f}, {0.0f, 0.0f}, {0.0f, 0.0f}, {0.0f, 0.0f}, {0.0f, 0.0f} }; // 每根手指的两个关节角度
 
-// 机械臂参数（连杆长度）
-float link1Length = 2.0f;  // 上臂长度
-float link2Length = 1.5f;  // 下臂长度
+float targetX = 3.0f; // 目标点 X 坐标
+float targetY = 3.0f; // 目标点 Y 坐标
+float targetZ = 0.0f; // 目标点 Z 坐标
 
-// 目标点（三维）：初始设置在 (2.5, 1.0, 2.5) 附近
-float targetX = 2.5f;
-float targetY = 1.0f;
-float targetZ = 2.5f;
-
-// IK 计算后的关节角（弧度）
-// baseAngle：基座绕 Y 轴旋转角
-// jointAngle1：肩关节在机械臂平面内（绕 Z 轴旋转）的角度
-// jointAngle2：肘关节角（平面内）
-float baseAngle = 0.0f;
-float jointAngle1 = 0.0f;
-float jointAngle2 = 0.0f;
-
-// 摄像机和投影相关
-glm::mat4 projMat;    // 投影矩阵
-glm::mat4 viewMat;    // 视图矩阵
-
-// 时间变量，用于目标动画
-float timeElapsed = 0.0f;
+int windowWidth = 800; // 窗口宽度
+int windowHeight = 600; // 窗口高度
 
 // ---------------- 函数声明 ---------------- //
 void initGL();
-void resize(int w, int h);
 void display();
+void resize(int w, int h);
 void idle();
-void calculateIK3D(float tx, float ty, float tz);
-void drawCoordinateAxes();
-void drawCube(float size);
-void drawArmSystem();
-
-void mouseCallback(int button, int state, int x, int y)
-{
-	if (button == GLUT_LEFT_BUTTON)
-	{
-		if (state == GLUT_DOWN)
-		{
-			isDragging = true;
-			lastMouseX = x;
-			lastMouseY = y;
-		}
-		else if (state == GLUT_UP)
-		{
-			isDragging = false;
-		}
-	}
-}
-
-void updateCamera()
-{
-	// 通过旋转角度和距离更新摄像机位置
-	float cameraX = cameraDistance * std::sin(glm::radians(cameraAngleY)) * std::cos(glm::radians(cameraAngleX));
-	float cameraY = cameraDistance * std::sin(glm::radians(cameraAngleX));
-	float cameraZ = cameraDistance * std::cos(glm::radians(cameraAngleY)) * std::cos(glm::radians(cameraAngleX));
-
-	// 更新视图矩阵
-	viewMat = glm::lookAt(
-		glm::vec3(cameraX, cameraY, cameraZ), // 摄像机位置
-		glm::vec3(0.0f, 0.0f, 0.0f),         // 观察目标
-		glm::vec3(0.0f, 1.0f, 0.0f)          // 上方向
-	);
-}
-
-
-void motionCallback(int x, int y)
-{
-	if (isDragging)
-	{
-		// 计算鼠标移动的偏移量
-		int dx = x - lastMouseX;
-		int dy = y - lastMouseY;
-
-		// 更新摄像机角度
-		cameraAngleX += dy * 0.5f; // Y方向拖动控制绕X轴旋转
-		cameraAngleY += dx * 0.5f; // X方向拖动控制绕Y轴旋转
-
-		// 更新鼠标位置
-		lastMouseX = x;
-		lastMouseY = y;
-
-		// 触发重绘
-		glutPostRedisplay();
-	}
-}
-
+void drawArm();
+void drawHand();
+void drawFinger(float baseAngle, float midAngle);
+void calculateIK(float tx, float ty, float tz);
+void mouseMotion(int x, int y);
 
 // ---------------- 主函数 ---------------- //
 int main(int argc, char** argv)
 {
-	glutInit(&argc, argv);
-	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
-	glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
+    glutInitWindowSize(windowWidth, windowHeight);
+    glutCreateWindow("3D Arm Following Mouse");
 
-	glutCreateWindow("3D Inverse Kinematics Demo");
-	// 初始化 GLEW
-	GLenum glewInitResult = glewInit();
-	if (glewInitResult != GLEW_OK)
-	{
-		std::cerr << "Error initializing GLEW: "
-			<< glewGetErrorString(glewInitResult) << std::endl;
-		return -1;
-	}
-	initGL();
+    GLenum glewInitResult = glewInit();
+    if (glewInitResult != GLEW_OK)
+    {
+        return -1;
+    }
 
-	glutReshapeFunc(resize);
-	glutDisplayFunc(display);
-	glutMouseFunc(mouseCallback);
-	glutMotionFunc(motionCallback);
-	glutIdleFunc(idle);
-
-	glutMainLoop();
-	return 0;
+    initGL();
+    glutDisplayFunc(display);
+    glutReshapeFunc(resize);
+    glutIdleFunc(idle);
+    glutPassiveMotionFunc(mouseMotion); // 捕获鼠标移动
+    glutMainLoop();
+    return 0;
 }
 
-// ---------------- OpenGL 设置 ---------------- //
+// ---------------- OpenGL 初始化 ---------------- //
 void initGL()
 {
-	glEnable(GL_DEPTH_TEST);
-	glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-	// 设置摄像机：摄像机放在 (0,5,8) 观察原点
-	viewMat = glm::lookAt(glm::vec3(0.0f, 5.0f, 8.0f),
-		glm::vec3(0.0f, 0.0f, 0.0f),
-		glm::vec3(0.0f, 1.0f, 0.0f));
+    glEnable(GL_DEPTH_TEST);
+    glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
 }
 
+// ---------------- 窗口大小变化 ---------------- //
 void resize(int w, int h)
 {
-	glViewport(0, 0, w, h);
-	float aspect = static_cast<float>(w) / static_cast<float>(h);
-	projMat = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
+    windowWidth = w;
+    windowHeight = h;
+    glViewport(0, 0, w, h);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    gluPerspective(45.0, (double)w / (double)h, 0.1, 100.0);
+    glMatrixMode(GL_MODELVIEW);
 }
 
+// ---------------- 绘制机械臂 ---------------- //
+void drawArm()
+{
+    glPushMatrix();
 
+    // 绘制上臂
+    glColor3f(0.8f, 0.3f, 0.3f);
+    glRotatef(shoulderAngle, 0.0f, 0.0f, 1.0f);
+    glBegin(GL_LINES);
+    glVertex3f(0.0f, 0.0f, 0.0f);
+    glVertex3f(upperArmLength, 0.0f, 0.0f);
+    glEnd();
+    glTranslatef(upperArmLength, 0.0f, 0.0f);
+
+    // 绘制下臂
+    glColor3f(0.3f, 0.8f, 0.3f);
+    glRotatef(elbowAngle, 0.0f, 0.0f, 1.0f);
+    glBegin(GL_LINES);
+    glVertex3f(0.0f, 0.0f, 0.0f);
+    glVertex3f(lowerArmLength, 0.0f, 0.0f);
+    glEnd();
+    glTranslatef(lowerArmLength, 0.0f, 0.0f);
+
+    // 绘制手掌
+    drawHand();
+
+    glPopMatrix();
+}
+
+// ---------------- 绘制手掌和手指 ---------------- //
+void drawHand()
+{
+    glColor3f(0.3f, 0.3f, 0.8f);
+    glutSolidSphere(0.2f, 16, 16); // 手掌为一个小球
+
+    // 绘制 5 根手指
+    for (int i = 0; i < 5; ++i)
+    {
+        glPushMatrix();
+        float angleOffset = -30.0f + i * 15.0f; // 每根手指的初始角度偏移
+        glRotatef(angleOffset, 0.0f, 1.0f, 0.0f);
+        drawFinger(fingerAngles[i][0], fingerAngles[i][1]);
+        glPopMatrix();
+    }
+}
+
+// ---------------- 绘制单根手指 ---------------- //
+void drawFinger(float baseAngle, float midAngle)
+{
+    glColor3f(0.8f, 0.8f, 0.3f);
+
+    // 绘制第一节
+    glRotatef(baseAngle, 0.0f, 0.0f, 1.0f);
+    glBegin(GL_LINES);
+    glVertex3f(0.0f, 0.0f, 0.0f);
+    glVertex3f(fingerLength, 0.0f, 0.0f);
+    glEnd();
+    glTranslatef(fingerLength, 0.0f, 0.0f);
+
+    // 绘制第二节
+    glRotatef(midAngle, 0.0f, 0.0f, 1.0f);
+    glBegin(GL_LINES);
+    glVertex3f(0.0f, 0.0f, 0.0f);
+    glVertex3f(fingerLength, 0.0f, 0.0f);
+    glEnd();
+}
+
+// ---------------- 逆运动学计算 ---------------- //
+void calculateIK(float tx, float ty, float tz)
+{
+    // 计算平面距离
+    float targetDistance = sqrt(tx * tx + ty * ty);
+    float totalArmLength = upperArmLength + lowerArmLength;
+
+    // 限制目标点在机械臂的可达范围内
+    if (targetDistance > totalArmLength)
+        targetDistance = totalArmLength;
+
+    // 计算肘部角度
+    float cosAngle = (upperArmLength * upperArmLength + lowerArmLength * lowerArmLength - targetDistance * targetDistance) /
+        (2.0f * upperArmLength * lowerArmLength);
+    elbowAngle = acos(cosAngle) * 180.0f / M_PI;
+
+    // 计算肩部角度
+    float angleToTarget = atan2(ty, tx) * 180.0f / M_PI;
+    float offsetAngle = acos((upperArmLength * upperArmLength + targetDistance * targetDistance - lowerArmLength * lowerArmLength) /
+        (2.0f * upperArmLength * targetDistance)) *
+        180.0f / M_PI;
+    shoulderAngle = angleToTarget - offsetAngle;
+}
+
+// ---------------- 鼠标移动回调 ---------------- //
+void mouseMotion(int x, int y)
+{
+    // 将鼠标坐标转换为 OpenGL 世界坐标
+    float normalizedX = (float)x / windowWidth * 2.0f - 1.0f; // 转换到 [-1, 1]
+    float normalizedY = 1.0f - (float)y / windowHeight * 2.0f; // 转换到 [-1, 1]
+
+    // 假设视图在 XY 平面上，Z 坐标固定为 0
+    targetX = normalizedX * 5.0f; // 放大到机械臂的工作范围
+    targetY = normalizedY * 5.0f; // 放大到机械臂的工作范围
+    targetZ = 0.0f;
+
+    // 更新逆运动学
+    calculateIK(targetX, targetY, targetZ);
+}
+
+// ---------------- 空闲回调 ---------------- //
+void idle()
+{
+    // 触发重绘
+    glutPostRedisplay();
+}
 
 // ---------------- 主绘制函数 ---------------- //
 void display()
 {
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	// 更新摄像机
-	updateCamera();
+    glLoadIdentity();
+    gluLookAt(6.0, 6.0, 10.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
 
-	// 加载视图和投影矩阵
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(glm::value_ptr(projMat));
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(glm::value_ptr(viewMat));
+    drawArm();
 
-	// 画坐标轴辅助调试
-	drawCoordinateAxes();
-
-	// 绘制机械臂系统
-	drawArmSystem();
-
-	glutSwapBuffers();
-}
-// ---------------- idle 回调 ---------------- //
-void idle()
-{
-	timeElapsed += 0.01f; // 时间步长，可以根据需要调整
-	// 动画：让目标在水平面上转动，同时 Y 方向有小幅波动
-	float radius = 0.5f;
-	targetX = 2.5f + radius * std::cos(timeElapsed);
-	targetZ = 2.5f + radius * std::sin(timeElapsed);
-	targetY = 1.0f + 0.3f * std::sin(timeElapsed * 0.5f);
-	// 更新 IK，计算新的关节角
-	calculateIK3D(targetX, targetY, targetZ);
-
-	glutPostRedisplay();
-}
-
-// ---------------- 3D 逆运动学解析函数 ---------------- //
-// 针对两连杆：第一步先求水平距离，再在垂直平面内处理
-void calculateIK3D(float tx, float ty, float tz)
-{
-	// 求水平投影距离
-	float r = std::sqrt(tx * tx + tz * tz);
-	// 求目标到肩关节（原点于水平面上偏移后）的距离 R
-	float R = std::sqrt(r * r + ty * ty);
-	// 为了防止超过机械臂可达极限，进行简单限制（略去 eps 细节）
-	if (R > link1Length + link2Length)
-		R = link1Length + link2Length - 0.0001f;
-
-	// 基座角：使机械臂转向目标水平位置（绕 Y 轴旋转）
-	baseAngle = std::atan2(tz, tx);
-
-	// 利用两连杆平面 IK 求解关节角：
-	// cos(theta2) = (R^2 - L1^2 - L2^2) / (2 * L1 * L2)
-	float cosTheta2 = (R * R - link1Length * link1Length - link2Length * link2Length) /
-		(2.0f * link1Length * link2Length);
-	if (cosTheta2 > 1.0f) cosTheta2 = 1.0f;
-	if (cosTheta2 < -1.0f) cosTheta2 = -1.0f;
-	jointAngle2 = std::acos(cosTheta2);  // 肘关节角
-
-	// 求解肩关节角：先计算两连杆夹角中的一个辅助量
-	float sinTheta2 = std::sqrt(1.0f - cosTheta2 * cosTheta2);
-	// atan2(L2*sin(theta2), L1+L2*cos(theta2)) ：辅助角 phi
-	float phi = std::atan2(link2Length * sinTheta2, link1Length + link2Length * cosTheta2);
-	// 目标在平面内的方向角 α = atan2(ty, r)
-	float alpha = std::atan2(ty, r);
-	// 设定肩关节角：调整为“抬起”角度（可以选择“elbow up”还是“elbow down”解）
-	jointAngle1 = alpha - phi;
-}
-
-// ---------------- 辅助函数：绘制坐标轴 ---------------- //
-void drawCoordinateAxes()
-{
-	glBegin(GL_LINES);
-	// X 轴：红色
-	glColor3f(1.0f, 0.0f, 0.0f);
-	glVertex3f(0.0f, 0.0f, 0.0f);
-	glVertex3f(5.0f, 0.0f, 0.0f);
-	// Y 轴：绿色
-	glColor3f(0.0f, 1.0f, 0.0f);
-	glVertex3f(0.0f, 0.0f, 0.0f);
-	glVertex3f(0.0f, 5.0f, 0.0f);
-
-	// Z 轴：蓝色
-	glColor3f(0.0f, 0.0f, 1.0f);
-	glVertex3f(0.0f, 0.0f, 0.0f);
-	glVertex3f(0.0f, 0.0f, 5.0f);
-	glEnd();
-}
-
-// ---------------- 辅助函数：绘制方块 ---------------- //
-// size 为方块的边长
-void drawCube(float size)
-{
-	float half = size * 0.5f;
-	glBegin(GL_QUADS);
-	// 前面
-	glColor3f(0.7f, 0.7f, 0.7f);
-	glVertex3f(-half, -half, half);
-	glVertex3f(half, -half, half);
-	glVertex3f(half, half, half);
-	glVertex3f(-half, half, half);
-	// 后面
-	glVertex3f(-half, -half, -half);
-	glVertex3f(-half, half, -half);
-	glVertex3f(half, half, -half);
-	glVertex3f(half, -half, -half);
-	// 左面
-	glVertex3f(-half, -half, -half);
-	glVertex3f(-half, -half, half);
-	glVertex3f(-half, half, half);
-	glVertex3f(-half, half, -half);
-
-	// 右面
-	glVertex3f(half, -half, -half);
-	glVertex3f(half, half, -half);
-	glVertex3f(half, half, half);
-	glVertex3f(half, -half, half);
-
-	// 上面
-	glVertex3f(-half, half, half);
-	glVertex3f(half, half, half);
-	glVertex3f(half, half, -half);
-	glVertex3f(-half, half, -half);
-
-	// 下面
-	glVertex3f(-half, -half, -half);
-	glVertex3f(half, -half, -half);
-	glVertex3f(half, -half, half);
-	glVertex3f(-half, -half, half);
-	glEnd();
-}
-
-// ---------------- 绘制机械臂系统 ---------------- //
-void drawArmSystem()
-{
-	// 为了避免多次调用 glLoadMatrixf，可以利用固定管线的堆栈操作
-	// 1) 绘制躯干（用一个竖直的方块表示）
-	{
-		glPushMatrix();
-		// 躯干放置于原点（这里人为设置）并拉伸变换
-		glm::mat4 torsoMat = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
-		torsoMat = glm::scale(torsoMat, glm::vec3(1.0f, 2.0f, 0.5f));
-		glLoadMatrixf(glm::value_ptr(viewMat * torsoMat));
-		drawCube(1.0f);
-		glPopMatrix();
-	}
-	// 2) 绘制机械臂（以上臂、下臂和末端执行器构成）
-	{
-		glPushMatrix();
-		// 把肩关节设在躯干顶部，假定其位置为 (0, 1, 0)
-		glTranslatef(0.0f, 1.0f, 0.0f);
-		// 先绕 Y 轴旋转，调整机械臂在水平面面向目标
-		glRotatef(glm::degrees(baseAngle), 0.0f, 1.0f, 0.0f);
-		// 然后在平面内（X-Y 平面）绕 Z 轴旋转，即为肩关节抬起角度
-		glRotatef(glm::degrees(jointAngle1), 0.0f, 0.0f, 1.0f);
-
-		// 绘制上臂：从 (0,0,0) 沿 X 轴方向拉伸
-		glPushMatrix();
-		glScalef(link1Length, 0.3f, 0.3f);
-		drawCube(1.0f);
-		glPopMatrix();
-
-		// 绘制下臂
-		glPushMatrix();
-		// 先平移到上臂末端（沿 X 轴正方向平移 link1Length）
-		glTranslatef(link1Length, 0.0f, 0.0f);
-		// 肘关节旋转：同样绕 Z 轴旋转
-		glRotatef(glm::degrees(jointAngle2), 0.0f, 0.0f, 1.0f);
-		// 绘制下臂，拉伸形成连杆
-		glScalef(link2Length, 0.2f, 0.2f);
-		drawCube(1.0f);
-		glPopMatrix();
-
-		// 绘制末端执行器（例如一个小红色方块），位于下臂末端
-		glPushMatrix();
-		// 平移到下臂末端
-		glTranslatef(link1Length + link2Length, 0.0f, 0.0f);
-		glScalef(0.2f, 0.2f, 0.2f);
-		glColor3f(1.0f, 0.0f, 0.0f);
-		drawCube(1.0f);
-		glPopMatrix();
-
-		glPopMatrix();
-	}
+    glutSwapBuffers();
 }
