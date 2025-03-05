@@ -1,11 +1,11 @@
-﻿#include <GL/glew.h>
-#include <GL/freeglut.h>
-#include <cmath>
-#include <vector>
+﻿
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
-
+#include <GL/glew.h>
+#include <GL/freeglut.h>
+#include <cmath>
+#include <vector>
 
 // ---------------- 全局变量 ---------------- //
 float upperArmLength = 2.0f; // 上臂长度
@@ -15,7 +15,7 @@ float fingerLength = 0.5f;   // 每节手指长度
 float shoulderAngle = 45.0f; // 肩关节角度
 float elbowAngle = 45.0f;    // 肘关节角度
 
-float fingerAngles[5][2] = { {0.0f, 0.0f}, {0.0f, 0.0f}, {0.0f, 0.0f}, {0.0f, 0.0f}, {0.0f, 0.0f} }; // 每根手指的两个关节角度
+float fingerAngles[5][3] = { {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} }; // 每根手指的三个关节角度
 
 float targetX = 3.0f; // 目标点 X 坐标
 float targetY = 3.0f; // 目标点 Y 坐标
@@ -24,6 +24,8 @@ float targetZ = 0.0f; // 目标点 Z 坐标
 int windowWidth = 800; // 窗口宽度
 int windowHeight = 600; // 窗口高度
 
+bool isGrabbing = false; // 是否正在抓取
+
 // ---------------- 函数声明 ---------------- //
 void initGL();
 void display();
@@ -31,9 +33,10 @@ void resize(int w, int h);
 void idle();
 void drawArm();
 void drawHand();
-void drawFinger(float baseAngle, float midAngle);
+void drawFinger(float baseAngle, float midAngle, float tipAngle);
 void calculateIK(float tx, float ty, float tz);
 void mouseMotion(int x, int y);
+void mouseClick(int button, int state, int x, int y);
 
 // ---------------- 主函数 ---------------- //
 int main(int argc, char** argv)
@@ -41,7 +44,7 @@ int main(int argc, char** argv)
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
     glutInitWindowSize(windowWidth, windowHeight);
-    glutCreateWindow("3D Arm Following Mouse");
+    glutCreateWindow("3D Arm with Grabbing Fingers");
 
     GLenum glewInitResult = glewInit();
     if (glewInitResult != GLEW_OK)
@@ -54,6 +57,7 @@ int main(int argc, char** argv)
     glutReshapeFunc(resize);
     glutIdleFunc(idle);
     glutPassiveMotionFunc(mouseMotion); // 捕获鼠标移动
+    glutMouseFunc(mouseClick);          // 捕获鼠标点击
     glutMainLoop();
     return 0;
 }
@@ -118,13 +122,13 @@ void drawHand()
         glPushMatrix();
         float angleOffset = -30.0f + i * 15.0f; // 每根手指的初始角度偏移
         glRotatef(angleOffset, 0.0f, 1.0f, 0.0f);
-        drawFinger(fingerAngles[i][0], fingerAngles[i][1]);
+        drawFinger(fingerAngles[i][0], fingerAngles[i][1], fingerAngles[i][2]);
         glPopMatrix();
     }
 }
 
 // ---------------- 绘制单根手指 ---------------- //
-void drawFinger(float baseAngle, float midAngle)
+void drawFinger(float baseAngle, float midAngle, float tipAngle)
 {
     glColor3f(0.8f, 0.8f, 0.3f);
 
@@ -138,6 +142,14 @@ void drawFinger(float baseAngle, float midAngle)
 
     // 绘制第二节
     glRotatef(midAngle, 0.0f, 0.0f, 1.0f);
+    glBegin(GL_LINES);
+    glVertex3f(0.0f, 0.0f, 0.0f);
+    glVertex3f(fingerLength, 0.0f, 0.0f);
+    glEnd();
+    glTranslatef(fingerLength, 0.0f, 0.0f);
+
+    // 绘制第三节
+    glRotatef(tipAngle, 0.0f, 0.0f, 1.0f);
     glBegin(GL_LINES);
     glVertex3f(0.0f, 0.0f, 0.0f);
     glVertex3f(fingerLength, 0.0f, 0.0f);
@@ -182,6 +194,32 @@ void mouseMotion(int x, int y)
 
     // 更新逆运动学
     calculateIK(targetX, targetY, targetZ);
+}
+
+// ---------------- 鼠标点击回调 ---------------- //
+void mouseClick(int button, int state, int x, int y)
+{
+    if (button == GLUT_LEFT_BUTTON && state == GLUT_DOWN)
+    {
+        isGrabbing = !isGrabbing; // 切换抓取状态
+
+        // 更新手指角度
+        for (int i = 0; i < 5; ++i)
+        {
+            if (isGrabbing)
+            {
+                fingerAngles[i][0] = 45.0f; // 根关节弯曲角度
+                fingerAngles[i][1] = 45.0f; // 中关节弯曲角度
+                fingerAngles[i][2] = 30.0f; // 末端关节弯曲角度
+            }
+            else
+            {
+                fingerAngles[i][0] = 0.0f;
+                fingerAngles[i][1] = 0.0f;
+                fingerAngles[i][2] = 0.0f;
+            }
+        }
+    }
 }
 
 // ---------------- 空闲回调 ---------------- //
