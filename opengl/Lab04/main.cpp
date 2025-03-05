@@ -10,6 +10,15 @@
 #include <glm/gtc/type_ptr.hpp>
 
 // ---------------- 全局变量 ---------------- //
+// // 摄像机控制相关变量
+float cameraAngleX = 0.0f; // 绕X轴旋转角度
+float cameraAngleY = 0.0f; // 绕Y轴旋转角度
+float cameraDistance = 10.0f; // 摄像机距离原点的距离
+
+bool isDragging = false; // 鼠标是否正在拖拽
+int lastMouseX, lastMouseY; // 上一次鼠标的位置
+
+// 
 // 窗口大小
 const int WINDOW_WIDTH = 800;
 const int WINDOW_HEIGHT = 600;
@@ -48,12 +57,68 @@ void drawCoordinateAxes();
 void drawCube(float size);
 void drawArmSystem();
 
+void mouseCallback(int button, int state, int x, int y)
+{
+	if (button == GLUT_LEFT_BUTTON)
+	{
+		if (state == GLUT_DOWN)
+		{
+			isDragging = true;
+			lastMouseX = x;
+			lastMouseY = y;
+		}
+		else if (state == GLUT_UP)
+		{
+			isDragging = false;
+		}
+	}
+}
+
+void updateCamera()
+{
+	// 通过旋转角度和距离更新摄像机位置
+	float cameraX = cameraDistance * std::sin(glm::radians(cameraAngleY)) * std::cos(glm::radians(cameraAngleX));
+	float cameraY = cameraDistance * std::sin(glm::radians(cameraAngleX));
+	float cameraZ = cameraDistance * std::cos(glm::radians(cameraAngleY)) * std::cos(glm::radians(cameraAngleX));
+
+	// 更新视图矩阵
+	viewMat = glm::lookAt(
+		glm::vec3(cameraX, cameraY, cameraZ), // 摄像机位置
+		glm::vec3(0.0f, 0.0f, 0.0f),         // 观察目标
+		glm::vec3(0.0f, 1.0f, 0.0f)          // 上方向
+	);
+}
+
+
+void motionCallback(int x, int y)
+{
+	if (isDragging)
+	{
+		// 计算鼠标移动的偏移量
+		int dx = x - lastMouseX;
+		int dy = y - lastMouseY;
+
+		// 更新摄像机角度
+		cameraAngleX += dy * 0.5f; // Y方向拖动控制绕X轴旋转
+		cameraAngleY += dx * 0.5f; // X方向拖动控制绕Y轴旋转
+
+		// 更新鼠标位置
+		lastMouseX = x;
+		lastMouseY = y;
+
+		// 触发重绘
+		glutPostRedisplay();
+	}
+}
+
+
 // ---------------- 主函数 ---------------- //
 int main(int argc, char** argv)
 {
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
 	glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+
 	glutCreateWindow("3D Inverse Kinematics Demo");
 	// 初始化 GLEW
 	GLenum glewInitResult = glewInit();
@@ -67,6 +132,8 @@ int main(int argc, char** argv)
 
 	glutReshapeFunc(resize);
 	glutDisplayFunc(display);
+	glutMouseFunc(mouseCallback);
+	glutMotionFunc(motionCallback);
 	glutIdleFunc(idle);
 
 	glutMainLoop();
@@ -91,11 +158,17 @@ void resize(int w, int h)
 	projMat = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
 }
 
+
+
 // ---------------- 主绘制函数 ---------------- //
 void display()
 {
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	// 重新加载视图和投影矩阵（使用固定管线）
+
+	// 更新摄像机
+	updateCamera();
+
+	// 加载视图和投影矩阵
 	glMatrixMode(GL_PROJECTION);
 	glLoadMatrixf(glm::value_ptr(projMat));
 	glMatrixMode(GL_MODELVIEW);
@@ -109,7 +182,6 @@ void display()
 
 	glutSwapBuffers();
 }
-
 // ---------------- idle 回调 ---------------- //
 void idle()
 {
