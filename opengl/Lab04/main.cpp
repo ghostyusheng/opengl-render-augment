@@ -7,6 +7,12 @@
 #include <cmath>
 #include <vector>
 
+
+// 摄像机参数
+float cameraAngleX = 45.0f; // 水平方向旋转角度
+float cameraAngleY = 30.0f; // 垂直方向旋转角度
+float cameraDistance = 10.0f; // 摄像机距离中心点的距离
+
 // ---------------- 全局变量 ---------------- //
 float upperArmLength = 2.0f; // 上臂长度
 float lowerArmLength = 2.0f; // 下臂长度
@@ -38,6 +44,39 @@ void calculateIK(float tx, float ty, float tz);
 void mouseMotion(int x, int y);
 void mouseClick(int button, int state, int x, int y);
 
+void keyboard(unsigned char key, int x, int y)
+{
+    switch (key)
+    {
+    case 'w': // 向上旋转
+        cameraAngleY += 5.0f;
+        if (cameraAngleY > 89.0f) cameraAngleY = 89.0f; // 限制垂直角度范围
+        break;
+    case 's': // 向下旋转
+        cameraAngleY -= 5.0f;
+        if (cameraAngleY < -89.0f) cameraAngleY = -89.0f;
+        break;
+    case 'a': // 向左旋转
+        cameraAngleX -= 5.0f;
+        break;
+    case 'd': // 向右旋转
+        cameraAngleX += 5.0f;
+        break;
+    case '+': // 缩近
+        cameraDistance -= 0.5f;
+        if (cameraDistance < 2.0f) cameraDistance = 2.0f; // 限制最近距离
+        break;
+    case '-': // 拉远
+        cameraDistance += 0.5f;
+        break;
+    case 27: // ESC 键退出程序
+        exit(0);
+        break;
+    }
+    glutPostRedisplay(); // 触发重绘
+}
+
+
 // ---------------- 主函数 ---------------- //
 int main(int argc, char** argv)
 {
@@ -58,6 +97,8 @@ int main(int argc, char** argv)
     glutIdleFunc(idle);
     glutPassiveMotionFunc(mouseMotion); // 捕获鼠标移动
     glutMouseFunc(mouseClick);          // 捕获鼠标点击
+    glutKeyboardFunc(keyboard); // 注册键盘回调
+
     glutMainLoop();
     return 0;
 }
@@ -82,9 +123,23 @@ void resize(int w, int h)
 }
 
 // ---------------- 绘制机械臂 ---------------- //
+// ---------------- 绘制机械臂 ---------------- //
 void drawArm()
 {
     glPushMatrix();
+
+    // 调整躯干的方向（初始化时）
+    glRotatef(90.0f, 0.0f, 0.0f, 1.0f); // 例如，让躯干绕 X 轴旋转 90 度
+    // 如果需要绕其他轴旋转，可以调整参数：
+    // glRotatef(angle, x, y, z);
+
+    // 绘制圆柱体躯干
+    glColor3f(0.5f, 0.5f, 0.5f); // 躯干颜色
+    GLUquadric* quadric = gluNewQuadric();
+    gluCylinder(quadric, 0.3f, 0.3f, 2.0f, 32, 32); // 圆柱体：底半径0.3，顶半径0.3，高度2.0
+
+    // 平移到躯干顶部，开始绘制上臂
+    glTranslatef(0.0f, 0.0f, 2.0f);
 
     // 绘制上臂
     glColor3f(0.8f, 0.3f, 0.3f);
@@ -109,6 +164,7 @@ void drawArm()
 
     glPopMatrix();
 }
+
 
 // ---------------- 绘制手掌和手指 ---------------- //
 void drawHand()
@@ -180,6 +236,8 @@ void calculateIK(float tx, float ty, float tz)
     shoulderAngle = angleToTarget - offsetAngle;
 }
 
+
+
 // ---------------- 鼠标移动回调 ---------------- //
 void mouseMotion(int x, int y)
 {
@@ -235,9 +293,16 @@ void display()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glLoadIdentity();
-    gluLookAt(6.0, 6.0, 10.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
+
+    // 计算摄像机位置
+    float camX = cameraDistance * cos(cameraAngleY * M_PI / 180.0f) * sin(cameraAngleX * M_PI / 180.0f);
+    float camY = cameraDistance * sin(cameraAngleY * M_PI / 180.0f);
+    float camZ = cameraDistance * cos(cameraAngleY * M_PI / 180.0f) * cos(cameraAngleX * M_PI / 180.0f);
+
+    gluLookAt(camX, camY, camZ, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
 
     drawArm();
 
     glutSwapBuffers();
 }
+
