@@ -25,7 +25,7 @@ float cameraDistance = 10.0f; // 摄像机距离中心点的距离
 float upperArmLength = 2.0f; // 上臂长度
 float lowerArmLength = 2.0f; // 下臂长度
 float fingerLength = 0.5f;   // 每节手指长度
-
+bool isGripping = false; // 是否正在握紧
 
 float fingerAngles[5][3] = { {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} }; // 每根手指的三个关节角度
 
@@ -81,7 +81,16 @@ void keyboard(unsigned char key, int x, int y)
     }
     glutPostRedisplay(); // 触发重绘
 }
-
+// ---------------- 鼠标点击回调 ---------------- //
+void onMouseClick(int button, int state, int x, int y) {
+    if (button == GLUT_LEFT_BUTTON && state == GLUT_DOWN) {
+        isGripping = !isGripping; // 切换握紧状态
+        for (int i = 0; i < 5; i++) {
+            fingerBaseAngle[i] = isGripping ? 45 : 10; // 45° 表示握紧，10° 表示放松
+        }
+        glutPostRedisplay(); // 触发重新绘制
+    }
+}
 
 // ---------------- 主函数 ---------------- //
 int main(int argc, char** argv)
@@ -102,7 +111,7 @@ int main(int argc, char** argv)
     glutReshapeFunc(resize);
     glutIdleFunc(idle);
     glutPassiveMotionFunc(mouseMotion); // 捕获鼠标移动
-    glutMouseFunc(mouseClick);          // 捕获鼠标点击
+    glutMouseFunc(onMouseClick);          // 捕获鼠标点击
     glutKeyboardFunc(keyboard); // 注册键盘回调
 
     glutMainLoop();
@@ -137,9 +146,10 @@ void drawArm() {
     glPushMatrix();
     glRotatef(shoulderAngle, 0.0f, 0.0f, 1.0f); // 肩部旋转
 
-    // **上臂**
+    // **上臂（设置为蓝色）**
     glPushMatrix();
     glRotatef(90, 0.0f, 1.0f, 0.0f);
+    glColor3f(0.0f, 0.0f, 1.0f); // 蓝色
     gluCylinder(quad, 0.2f, 0.2f, upperArmLength, 16, 16);
     glPopMatrix();
 
@@ -147,9 +157,10 @@ void drawArm() {
     glTranslatef(upperArmLength, 0.0f, 0.0f);
     glRotatef(elbowAngle, 0.0f, 0.0f, 1.0f);
 
-    // **前臂**
+    // **前臂（设置为绿色）**
     glPushMatrix();
     glRotatef(90, 0.0f, 1.0f, 0.0f);
+    glColor3f(0.0f, 1.0f, 0.0f); // 绿色
     gluCylinder(quad, 0.15f, 0.15f, lowerArmLength, 16, 16);
     glPopMatrix();
 
@@ -167,23 +178,22 @@ void drawArm() {
         float x = 0.1f * (i - 2);
         float y = 0.2f;
 
-        // 第一节
+        // 第一节（长度改为 1.3f）
         glVertex3f(x, y, 0.0f);
-        glVertex3f(x + 0.2f * cos(fingerBaseAngle[i] * 3.14 / 180.0f),
-            y + 0.2f * sin(fingerBaseAngle[i] * 3.14 / 180.0f), 0.0f);
+        glVertex3f(x + 1.3f * cos(fingerBaseAngle[i] * 3.14 / 180.0f),
+            y + 1.3f * sin(fingerBaseAngle[i] * 3.14 / 180.0f), 0.0f);
 
-        // 第二节
-        float x2 = x + 0.2f * cos(fingerBaseAngle[i] * 3.14 / 180.0f);
-        float y2 = y + 0.2f * sin(fingerBaseAngle[i] * 3.14 / 180.0f);
+        // 第二节（长度改为 1.2f）
+        float x2 = x + 0.3f * cos(fingerBaseAngle[i] * 3.14 / 180.0f);
+        float y2 = y + 0.3f * sin(fingerBaseAngle[i] * 3.14 / 180.0f);
         glVertex3f(x2, y2, 0.0f);
-        glVertex3f(x2 + 0.15f * cos(fingerBaseAngle[i] * 3.14 / 180.0f),
-            y2 + 0.15f * sin(fingerBaseAngle[i] * 3.14 / 180.0f), 0.0f);
+        glVertex3f(x2 + 1.2f * cos(fingerBaseAngle[i] * 3.14 / 180.0f),
+            y2 + 1.2f * sin(fingerBaseAngle[i] * 3.14 / 180.0f), 0.0f);
     }
     glEnd();
 
     glPopMatrix();
 }
-
 // ---------------- 绘制手掌和手指 ---------------- //
 void drawHand()
 {
@@ -266,31 +276,7 @@ void mouseMotion(int x, int y)
     calculateIK(targetX, targetY, targetZ);
 }
 
-// ---------------- 鼠标点击回调 ---------------- //
-void mouseClick(int button, int state, int x, int y)
-{
-    if (button == GLUT_LEFT_BUTTON && state == GLUT_DOWN)
-    {
-        isGrabbing = !isGrabbing; // 切换抓取状态
 
-        // 更新手指角度
-        for (int i = 0; i < 5; ++i)
-        {
-            if (isGrabbing)
-            {
-                fingerAngles[i][0] = 45.0f; // 根关节弯曲角度
-                fingerAngles[i][1] = 45.0f; // 中关节弯曲角度
-                fingerAngles[i][2] = 30.0f; // 末端关节弯曲角度
-            }
-            else
-            {
-                fingerAngles[i][0] = 0.0f;
-                fingerAngles[i][1] = 0.0f;
-                fingerAngles[i][2] = 0.0f;
-            }
-        }
-    }
-}
 
 // ---------------- 空闲回调 ---------------- //
 void idle()
